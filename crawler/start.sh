@@ -1,1 +1,1 @@
-docker exec -it lilac-crawler python main.py
+docker exec -d lilac-crawler sh -c "python main.py > crawler.log 2>&1"

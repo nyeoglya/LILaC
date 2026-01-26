@@ -1,9 +1,12 @@
+import os
 import re
 import copy
 import typing as tp
-import urllib.parse
+
+import threading
 from concurrent.futures import ThreadPoolExecutor
 
+import urllib.parse
 import requests
 from bs4 import BeautifulSoup, Tag
 
@@ -38,9 +41,6 @@ class TableComponent(ComponentData):
 
 class LilacCrawlerBase:
     def __init__(self):
-        self.headers = {
-            'User-Agent': 'LILaCScraper/1.0 (abc@example.com)'
-        }
         self.base_url = ""
         self.source = []
     
@@ -57,65 +57,23 @@ class LilacCrawlerBase:
         return TableComponent(data)
 
 class WikiPage(LilacCrawlerBase):
-    def __init__(self, page_name: str) -> None:
+    def __init__(self, filepath: str) -> None:
         super().__init__()
-        self.page_name = page_name
+        self.filepath = filepath
         self.source = []
         self.parsed: tp.List[ComponentData] = []
-        self.base_url = "https://en.wikipedia.org/w/api.php"
 
-    def run(self) -> bool:
-        self.crawl_restapi()
-        self.parse_lines()
-        return True
-
-    def crawl_old(self) -> bool:
-        params = {
-            "action": "parse",
-            "page": self.page_name,
-            "prop": "text",
-            "format": "json",
-            "redirects": 1,
-            "disableeditsection": 1
-        }
-        
+    def read_file(self) -> bool:
         try:
-            response = requests.get(self.base_url, params=params, headers=self.headers, timeout=10)
-            response.raise_for_status()
-            data = response.json()
+            with open(self.filepath, "r", encoding="utf-8") as f:
+                html_text = f.read()
             
-            if 'error' in data:
-                print(f"API Error: {data['error'].get('info', 'Unknown error')}")
+            soup = BeautifulSoup(html_text, 'html.parser')
+            
+            all_elements = soup.select('section')
+            
+            if not all_elements:
                 return False
-
-            raw_html = data.get('parse', {}).get('text', {}).get('*')
-            
-            if raw_html:
-                soup = BeautifulSoup(raw_html, 'html.parser')
-                container = soup.find("div", class_="mw-parser-output")
-                
-                if not container:
-                    return False
-
-                self.source = [tag for tag in container.find_all(recursive=False) if tag.name and "shortdescription" not in tag.get('class', []) and tag.name != 'style']
-
-                return True
-            return False
-
-        except Exception as e:
-            print(f"Error: {e}")
-            return False
-
-    def crawl_restapi(self) -> bool:
-        url = f"https://en.wikipedia.org/api/rest_v1/page/html/{self.page_name}"
-        
-        try:
-            response = requests.get(url, headers=self.headers, timeout=10)
-            response.raise_for_status()
-            
-            soup = BeautifulSoup(response.text, 'html.parser')
-            
-            all_elements = soup.select('section > p, section > table, section > div, section > ul, section > figure')
             
             self.source = []
             seen_tags = set()
@@ -140,46 +98,41 @@ class WikiPage(LilacCrawlerBase):
     def parse_lines(self) -> bool:
         self.parsed = []
         current_heading_path = []
-        current_heading_index = 0
-        heading_map = {
-            'mw-heading2': 0,
-            'mw-heading3': 1,
-            'mw-heading4': 2,
-            'mw-heading5': 3,
-            'mw-heading6': 4,
-        }
-        ignore_table_classes = {'ambox', 'mbox', 'cmbox', 'infobox-servicedisruption'}
         stop_keywords = { "References", "See also", "External links", "Notes", "Further reading", "Sources" }
-        for data in self.source:
-            new_component: tp.Union[ComponentData, None] = None
+        ignore_table_classes = {'ambox', 'mbox', 'cmbox', 'metadata'}
+
+        for section in self.source:
+            elements = section.find_all(recursive=False)
+            header_tag = section.find(['h2', 'h3', 'h4', 'h5', 'h6'], recursive=False)
             
-            if data.name == 'div':
-                class_list = data.get('class', [])
-                if 'mw-heading' in class_list:
-                    found_class = next((c for c in class_list if c in heading_map), None)
-                    if found_class:
-                        current_heading_index = heading_map[found_class]
-                        current_heading_path = current_heading_path[:current_heading_index]
-                        title_text = data.text.strip()
-                        if title_text in stop_keywords:
-                            break
-                        else:
-                            current_heading_path.append(title_text)
-            elif data.name == "dl":
-                current_heading_path = current_heading_path[:current_heading_index+1]
-                current_heading_path.append(data.text)
-            elif data.name == 'p':
-                new_component = self.parse_paragraph(data)
-            elif data.name == 'table':
-                new_component = self.parse_table(data)
-            elif data.name == 'figure':
-                new_component = self.parse_figure(data)
-            elif data.name in ['ul', 'ol']:
-                new_component = self.parse_list(data)
-            
-            if new_component is not None:
-                new_component.heading_path = copy.copy(current_heading_path)
-                self.parsed.append(new_component)
+            if header_tag:
+                title_text = header_tag.get_text().strip()
+                
+                if any(stop.lower() in title_text.lower() for stop in stop_keywords):
+                    break
+                
+                level = int(header_tag.name[1]) - 2 
+                current_heading_path = current_heading_path[:level]
+                current_heading_path.append(title_text)
+
+            for data in elements:
+                if data == header_tag: continue
+                
+                new_component = None
+                if data.name == 'p':
+                    new_component = self.parse_paragraph(data)
+                elif data.name == 'table':
+                    if any(cls in ignore_table_classes for cls in data.get('class', [])):
+                        continue
+                    new_component = self.parse_table(data)
+                elif data.name == 'figure':
+                    new_component = self.parse_figure(data)
+                elif data.name in ['ul', 'ol']:
+                    new_component = self.parse_list(data)
+
+                if new_component is not None:
+                    new_component.heading_path = copy.copy(current_heading_path)
+                    self.parsed.append(new_component)
         return True
 
     def parse_paragraph(self, data: Tag) -> tp.Union[ParagraphComponent, None]:
@@ -286,39 +239,87 @@ class WikiPage(LilacCrawlerBase):
             else:
                 a.unwrap()
 
-class WikiBatchHTMLParser:
-    def __init__(self, lang="en"):
-        self.base_url = f"https://{lang}.wikipedia.org/api/rest_v1/page/html/"
+class WikiBatchParser:
+    def __init__(self, folder_path="crawled_html"):
+        self.base_url = f"https://en.wikipedia.org/api/rest_v1/page/html/"
         self.headers = {
-            "User-Agent": "WikiBulkParser/1.0 (your-email@example.com)"
+            "User-Agent": "LILaCBulkScraper/1.0 (abc@example.com)"
         }
+        
+        if not os.path.exists(folder_path):
+            os.makedirs(folder_path)
+            print(f"Created directory: {folder_path}")
+        
+        self.folder_path = folder_path
         self.session = requests.Session()
         self.session.headers.update(self.headers)
+        
+        self.progress = 0
+        self.max_progress = 0
+        self.lock = threading.Lock()
 
-    def parse_page(self, page_name):
-        url = self.base_url + page_name
+    def save_to_file(self, page_name, html_content):
+        safe_filename = "".join([c for c in page_name if c.isalnum() or c in (' ', '_', '-')]).rstrip()
+        file_path = os.path.join(self.folder_path, f"{safe_filename}.html")
+        
+        try:
+            with open(file_path, "w", encoding="utf-8") as f:
+                f.write(html_content)
+            return True
+        except Exception as e:
+            print(f"Failed to save {page_name}: {e}")
+            return False
+
+    def fetch_and_save(self, page_name):
+        url = f"{self.base_url.rstrip('/')}/{page_name}"
         try:
             response = self.session.get(url, timeout=15)
             response.raise_for_status()
             
-            soup = BeautifulSoup(response.text, 'html.parser')
-            container = soup.find("body")
+            with self.lock:
+                self.progress += 1
+                if self.progress % 50 == 0:
+                    print(f"Progress: {self.progress}/{self.max_progress} ({(self.progress/self.max_progress)*100:.1f}%)")
             
-            if not container:
-                return None
-
-            return {
-                "page": page_name,
-                "html_content": str(container)
-            }
-
+            if self.save_to_file(page_name, response.text):
+                return page_name
+            return None
         except Exception as e:
-            print(f"Error parsing {page_name}: {e}")
+            print(f"Error crawling {page_name}: {e}")
             return None
 
-    def run_batch(self, page_list, max_workers=3):
+    def run_batch(self, page_list, max_workers=5):
+        self.max_progress = len(page_list)
+        self.progress = 0
+        
+        print(f"Starting batch crawl for {self.max_progress} pages...")
+        
+        # 병렬 작업 수행
         results = []
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            results = list(executor.map(self.parse_page, page_list))
+            results = list(executor.map(self.fetch_and_save, page_list))
         
-        return [r for r in results if r is not None]
+        # 결과 분석 (성공/실패 분리)
+        success_pages = [r for r in results if r is not None]
+        failed_pages = [page_list[i] for i, r in enumerate(results) if r is None]
+        
+        success_count = len(success_pages)
+        failed_count = len(failed_pages)
+        
+        print(f"\nBatch complete.")
+        print(f" - Total: {self.max_progress}")
+        print(f" - Success: {success_count}")
+        print(f" - Failed: {failed_count}")
+
+        # 실패한 리스트가 있다면 파일로 저장
+        if failed_pages:
+            failed_file = "failed_pages.txt"
+            try:
+                with open(failed_file, "w", encoding="utf-8") as f:
+                    for page in failed_pages:
+                        f.write(f"{page}\n")
+                print(f"⚠️ Failed pages list saved to: {os.path.abspath(failed_file)}")
+            except Exception as e:
+                print(f"Error saving failed pages list: {e}")
+                
+        return results

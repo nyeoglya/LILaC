@@ -1,5 +1,10 @@
 # cache
 **/__pycache__
 
-# dataset folder
+# dataset
 dataset/
+crawler/crawled_html
+crawler/MMQA_dev.jsonl
+
+# log files
+crawler/crawler.log
