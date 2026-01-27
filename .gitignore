@@ -3,8 +3,7 @@
 
 # dataset
 dataset/
-crawler/crawled_html
-crawler/crawled_images
+crawler/crawled_*
 crawler/MMQA_dev.jsonl
 
 # log files
