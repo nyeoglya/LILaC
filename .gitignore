@@ -4,6 +4,7 @@
 # dataset
 dataset/
 crawler/crawled_html
+crawler/crawled_images
 crawler/MMQA_dev.jsonl
 
 # log files
