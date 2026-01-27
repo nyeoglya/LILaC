@@ -1,9 +1,9 @@
-from crawler import *
 import os
+from crawler.wiki import *
 
 def main():
-    folder_path = "./crawled_html/"
-    img_folder_path = "./crawled_images/"
+    folder_path = "./dataset/crawled/html/"
+    img_folder_path = "./dataset/crawled/images/"
     wiki_batch_crawler = WikiBatchCrawler(folder_path)
     mmqa_titles = wiki_batch_crawler.get_clean_wiki_titles("dataset/MMQA_dev.jsonl", "dataset/MMQA_texts.jsonl", "dataset/MMQA_images.jsonl", "dataset/MMQA_tables.jsonl")
     
@@ -22,7 +22,7 @@ def main():
     
     '''
     ref_files = []
-    with open("ddd.txt", "r") as file:
+    with open("refer.txt", "r") as file:
         for line in file:
             clean_name = line.strip().split(".")[0]
             if clean_name:
