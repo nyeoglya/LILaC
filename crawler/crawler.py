@@ -1,6 +1,9 @@
 import os
 import re
+import json
 import copy
+import time
+import random
 import typing as tp
 
 import threading
@@ -13,12 +16,18 @@ from bs4 import BeautifulSoup, Tag
 class ComponentData:
     def __init__(self) -> None:
         self.heading_path = []
+    
+    def to_json(self) -> tp.Dict:
+        return {}
 
 class ImageComponent(ComponentData):
     def __init__(self, url: str, caption: str) -> None:
         super().__init__()
         self.url = url
         self.caption = caption
+    
+    def to_json(self) -> tp.Dict:
+        return {'url': self.url, 'caption': self.caption, "heading_path": self.heading_path}
     
     def __str__(self) -> str:
         return f"url: {self.url}, caption: {self.caption}"
@@ -28,6 +37,9 @@ class ParagraphComponent(ComponentData):
         super().__init__()
         self.paragraph: str = paragraph
     
+    def to_json(self) -> tp.Dict:
+        return {"paragraph": self.paragraph, "heading_path": self.heading_path}
+    
     def __str__(self) -> str:
         return f"paragraph: {self.paragraph}"
 
@@ -36,13 +48,19 @@ class TableComponent(ComponentData):
         super().__init__()
         self.table = table
     
+    def to_json(self) -> tp.Dict:
+        return {"table": self.table, "heading_path": self.heading_path}
+    
     def __str__(self) -> str:
         return f"table: {self.table}"
 
-class LilacCrawlerBase:
+class BasePage:
     def __init__(self):
         self.base_url = ""
         self.source = []
+    
+    def save(self) -> bool:
+        return False
     
     def run(self) -> bool:
         return False
@@ -56,12 +74,22 @@ class LilacCrawlerBase:
     def parse_table(self, data) -> tp.Union[TableComponent, None]:
         return TableComponent(data)
 
-class WikiPage(LilacCrawlerBase):
-    def __init__(self, filepath: str) -> None:
+class WikiPage(BasePage):
+    def __init__(self, title: str, filepath: str) -> None:
         super().__init__()
+        self.title = title
         self.filepath = filepath
         self.source = []
         self.parsed: tp.List[ComponentData] = []
+
+    def save(self) -> bool:
+        result_list = [(0, {"title": self.title})]
+        for i, comp_data in enumerate(self.parsed):
+            result_list.append((i+1, comp_data.to_json()))
+        result_dict = dict(result_list)
+        with open(f'{self.filepath}.json', 'w', encoding='utf-8') as f:
+            json.dump(result_dict, f, ensure_ascii=False, indent=4)
+        return True
 
     def read_file(self) -> bool:
         try:
@@ -190,9 +218,13 @@ class WikiPage(LilacCrawlerBase):
         return TableComponent(rows)
 
     def parse_figure(self, data) -> tp.Union[ImageComponent, None]:
-        img_tag = copy.copy(data)
-        
-        src = img_tag.find('img').get('src', '')
+        img_element = data.find('img')
+        if img_element is None:
+            return None
+        src = img_element.get('src', '')
+        if not src:
+            return None
+
         full_url = "https:" + src if src.startswith("//") else src
         
         if '/thumb/' in full_url:
@@ -229,17 +261,31 @@ class WikiPage(LilacCrawlerBase):
         return result_text
     
     def convert_wikilink(self, data):
-        for a in data.find_all('a'):
+        for a in list(data.find_all('a')):
             href = a.get('href', '')
-            link_text = a.get_text(strip=True)
-            if href.startswith('/wiki/') and not href.startswith('/wiki/File:'):
-                page_title = urllib.parse.unquote(href.replace('/wiki/', ''))
-                new_syntax = f"[[{page_title}|{link_text}]]" if page_title != link_text else f"[[{link_text}]]"
+            rel = a.get('rel', [])
+            link_text = a.get_text().strip()
+            
+            if not link_text:
+                a.decompose()
+                continue
+
+            is_wikilink = "mw:WikiLink" in rel or href.startswith('./')
+            is_file = "File:" in href or "Special:" in href
+
+            if is_wikilink and not is_file:
+                page_title = urllib.parse.unquote(href.replace('./', '').replace('/wiki/', ''))
+                
+                if page_title != link_text:
+                    new_syntax = f"[[{page_title}|{link_text}]]"
+                else:
+                    new_syntax = f"[[{link_text}]]"
+                
                 a.replace_with(new_syntax)
             else:
                 a.unwrap()
 
-class WikiBatchParser:
+class WikiBatchCrawler:
     def __init__(self, folder_path="crawled_html"):
         self.base_url = f"https://en.wikipedia.org/api/rest_v1/page/html/"
         self.headers = {
@@ -258,10 +304,13 @@ class WikiBatchParser:
         self.max_progress = 0
         self.lock = threading.Lock()
 
-    def save_to_file(self, page_name, html_content):
+    def get_filepath(self, page_name):
         safe_filename = "".join([c for c in page_name if c.isalnum() or c in (' ', '_', '-')]).rstrip()
         file_path = os.path.join(self.folder_path, f"{safe_filename}.html")
-        
+        return file_path
+
+    def save_to_file(self, page_name, html_content):
+        file_path = self.get_filepath(page_name)
         try:
             with open(file_path, "w", encoding="utf-8") as f:
                 f.write(html_content)
@@ -318,8 +367,210 @@ class WikiBatchParser:
                 with open(failed_file, "w", encoding="utf-8") as f:
                     for page in failed_pages:
                         f.write(f"{page}\n")
-                print(f"⚠️ Failed pages list saved to: {os.path.abspath(failed_file)}")
+                print(f"Failed pages list saved to: {os.path.abspath(failed_file)}")
             except Exception as e:
                 print(f"Error saving failed pages list: {e}")
                 
         return results
+    
+    def get_clean_wiki_titles(self, mmqa_file_path):
+        titles = set()
+        
+        with open(mmqa_file_path, 'r', encoding='utf-8') as f:
+            for line_number, line in enumerate(f, 1):
+                line = line.strip()
+                if not line: continue # 빈 줄 건너뛰기
+                
+                try:
+                    # 한 줄씩 읽어서 딕셔너리로 변환
+                    entry = json.loads(line)
+                    
+                    # 만약 파일 전체가 [{}, {}] 구조라면 entry가 리스트일 수 있음
+                    if isinstance(entry, list):
+                        data_list = entry
+                    else:
+                        data_list = [entry]
+
+                    for item in data_list:
+                        # 데이터가 문자열이면 무시 (에러 방지)
+                        if not isinstance(item, dict):
+                            continue
+                            
+                        metadata = item.get('metadata', {})
+                        
+                        # wiki_entities_in_answers에서 추출
+                        for entity in metadata.get('wiki_entities_in_answers', []):
+                            if isinstance(entity, dict):
+                                title = entity.get('wiki_title')
+                                if title: titles.add(title.strip())
+                        
+                        # wiki_entities_in_question에서 추출
+                        for entity in metadata.get('wiki_entities_in_question', []):
+                            if isinstance(entity, dict):
+                                title = entity.get('wiki_title')
+                                if title: titles.add(title.strip())
+
+                except json.JSONDecodeError:
+                    print(f"Skipping invalid JSON on line {line_number}")
+                    continue
+
+        # 공백을 언더바로 치환
+        final_list = [t.replace(' ', '_') for t in titles if t]
+        print(f"총 {len(final_list)}개의 고유 wiki_title을 추출했습니다.")
+        return final_list
+
+class BatchWikiImageCrawler:
+    def __init__(self, folder_path) -> None:
+        self.folder_path = folder_path
+        self.headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+            "Referer": "https://en.wikipedia.org/"
+        }
+        
+        if not os.path.exists(folder_path):
+            os.makedirs(folder_path)
+            print(f"Created directory: {folder_path}")
+        
+        self.folder_path = folder_path
+        self.session = requests.Session()
+        self.session.headers.update(self.headers)
+        
+        self.progress = 0
+        self.max_progress = 0
+        self.lock = threading.Lock()
+    
+    def fetch_and_save(self, img_data):
+        filename, img_url = img_data
+        file_path = os.path.join(self.folder_path, filename)
+        
+        if os.path.exists(file_path):
+            print(f"Already Exists (Skip): {filename}")
+            with self.lock:
+                self.progress += 1
+                if self.progress % 50 == 0:
+                    print(f"Progress: {self.progress}/{self.max_progress} ({(self.progress/self.max_progress)*100:.1f}%)")
+            return True
+        
+        try:
+            time.sleep(random.uniform(1.0, 3.0)) 
+        
+            response = self.session.get(img_url, timeout=15, stream=True)
+            if response.status_code == 429:
+                print("Rate limit hit. Sleeping for 5 seconds...")
+                time.sleep(5.0)
+                return False
+            
+            response.raise_for_status()
+            
+            with self.lock:
+                self.progress += 1
+                if self.progress % 50 == 0:
+                    print(f"Progress: {self.progress}/{self.max_progress} ({(self.progress/self.max_progress)*100:.1f}%)")
+            
+            with open(file_path, "wb") as f:
+                f.write(response.content)
+            
+            return True
+        except Exception as e:
+            print(f"Error downloading {img_url}: {e}")
+            return False
+    
+    def run_batch(self, img_data_list, max_workers=2):
+        img_data_list = list(img_data_list)
+        self.max_progress = len(img_data_list)
+        self.progress = 0
+        
+        print(f"Starting batch crawl for {self.max_progress} images...")
+        
+        # 병렬 작업 수행
+        results = []
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            results = list(executor.map(self.fetch_and_save, img_data_list))
+        
+        # 결과 분석 (성공/실패 분리)
+        success_pages = [r for r in results if r is not None]
+        failed_pages = [img_data_list[i] for i, r in enumerate(results) if r is None]
+        
+        success_count = len(success_pages)
+        failed_count = len(failed_pages)
+        
+        print(f"\nBatch complete.")
+        print(f" - Total: {self.max_progress}")
+        print(f" - Success: {success_count}")
+        print(f" - Failed: {failed_count}")
+
+        # 실패한 리스트가 있다면 파일로 저장
+        if failed_pages:
+            failed_file = "failed_imgs.txt"
+            try:
+                with open(failed_file, "w", encoding="utf-8") as f:
+                    for page in failed_pages:
+                        f.write(f"{page}\n")
+                print(f"Failed image list saved to: {os.path.abspath(failed_file)}")
+            except Exception as e:
+                print(f"Error saving failed image list: {e}")
+                
+        return results
+    
+    def get_clean_filename(self, url):
+        raw_filename = url.split('/')[-1]
+        decoded_name = urllib.parse.unquote(raw_filename)
+        invalid_chars = '<>:"/\|?*'
+        for char in invalid_chars:
+            decoded_name = decoded_name.replace(char, '')        
+        return decoded_name
+
+    def extract_imglink(self, data, target_keyword="https://upload.wikimedia.org") -> tp.Set[str]:
+        links = set()
+        
+        if isinstance(data, dict):
+            for value in data.values():
+                links.update(self.extract_imglink(value, target_keyword))
+        elif isinstance(data, list):
+            for item in data:
+                links.update(self.extract_imglink(item, target_keyword))
+        elif isinstance(data, str):
+            # [[Image:URL]] 형태 (문자열 내부에 포함됨)
+            if "[[Image:" in data:
+                found = re.findall(r'\[\[Image:(.*?)\]\]', data)
+                for link in found:
+                    if target_keyword in link:
+                        links.add(link.strip())
+            
+            # URL만 단독으로 있는 경우 (또는 단순 포함)
+            elif target_keyword in data:
+                found = re.findall(rf'({target_keyword}[^\s\]|]+)', data)
+                links.update(found)
+                
+        return links
+
+    def process_json_file(self, file_path):
+        if not os.path.exists(file_path):
+            return None
+
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+                target_data = list(data.values())
+                image_links = self.extract_imglink(target_data)
+                return image_links
+        except:
+            return None
+
+    def get_clean_imglinks(self, filepath_list):
+        links = set()
+        result_links_pair = set()
+        process = 0
+        for data in filepath_list:
+            processed_file = self.process_json_file(data)
+            if processed_file is not None:
+                links.update(processed_file)
+                process += 1
+        
+        print(f"Process {process} paths among {len(filepath_list)} paths")
+        
+        for link in links:
+            result_links_pair.add((self.get_clean_filename(link), link))
+        
+        return result_links_pair
