@@ -1,24 +1,30 @@
 import os
+
 from crawler.wiki import *
+from parser.wiki import *
 
 def main():
-    folder_path = "./dataset/crawled/html/"
-    img_folder_path = "./dataset/crawled/images/"
-    wiki_batch_crawler = WikiBatchCrawler(folder_path)
-    mmqa_titles = wiki_batch_crawler.get_clean_wiki_titles("dataset/MMQA_dev.jsonl", "dataset/MMQA_texts.jsonl", "dataset/MMQA_images.jsonl", "dataset/MMQA_tables.jsonl")
+    crawl_folder_path = "./dataset/crawled/html/"
+    img_crawl_folder_path = "./dataset/crawled/images/"
     
+    # Crawler
+    wiki_batch_crawler = WikiBatchCrawler(crawl_folder_path)
+    mmqa_titles = wiki_batch_crawler.get_clean_wiki_titles("dataset/mmqa/MMQA_dev.jsonl", "dataset/mmqa/MMQA_texts.jsonl", "dataset/mmqa/MMQA_images.jsonl", "dataset/mmqa/MMQA_tables.jsonl")
+    wiki_batch_crawler.run_batch(mmqa_titles)
+    
+    # Parser
     i = 0
     for mmqa_title in mmqa_titles:
         if i%5==0:
             print(f"{i}/{len(mmqa_titles)}")
         filepath = wiki_batch_crawler.get_filepath(mmqa_title)
-        wiki_crawler = WikiPage(mmqa_title, filepath)
-        wiki_crawler.read_file()
-        wiki_crawler.parse_lines()
-        wiki_crawler.save()
+        wiki_parser = WikiPage(mmqa_title, filepath)
+        wiki_parser.read_file()
+        wiki_parser.parse_lines()
+        wiki_parser.save()
         i += 1
     
-    # wiki_batch_crawler.run_batch(mmqa_titles)
+    # Image Crawler
     
     '''
     ref_files = []
