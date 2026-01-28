@@ -141,7 +141,7 @@ class WikiBatchCrawler:
             title = decoded_url.replace('https://en.wikipedia.org/wiki/', '').replace(' ', '_')
             clean_titles.add(title)
             
-        print(f"총 {len(clean_titles)}개의 고유 wiki_title을 추출했습니다.")
+        print(f"Extract {len(clean_titles)} unique wiki title")
         return list(clean_titles)
 
 
@@ -149,12 +149,8 @@ class BatchWikiImageCrawler:
     def __init__(self, folder_path) -> None:
         self.folder_path = folder_path
         self.headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
-            "Accept-Language": "en-US,en;q=0.9",
-            "Sec-Ch-Ua": '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
-            "Sec-Ch-Ua-Mobile": "?0",
-            "Sec-Ch-Ua-Platform": '"Windows"',
+            "User-Agent": "LilacCrawler/1.0 (Contact: hyunseong@postech.ac.kr; Research Purpose)",
+            "Accept-Encoding": "gzip, deflate"
         }
         
         if not os.path.exists(folder_path):
@@ -182,8 +178,7 @@ class BatchWikiImageCrawler:
             return True
         
         try:
-            time.sleep(random.randint(6,10))
-        
+            time.sleep(random.uniform(0.5, 1.5))        
             response = self.session.get(img_url, timeout=20, stream=True)
             if response.status_code == 429:
                 print("Rate limit hit. Sleeping for 60 seconds...")
@@ -211,10 +206,14 @@ class BatchWikiImageCrawler:
         
         print(f"Starting batch crawl for {self.max_progress} images...")
         
-        # 병렬 작업 수행
+        # 작업 수행
         results = []
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            results = list(executor.map(self.fetch_and_save, img_data_list))
+        if max_workers == 1:
+            for img_data in img_data_list:
+                results.append(self.fetch_and_save(img_data))
+        else:
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                results = list(executor.map(self.fetch_and_save, img_data_list))
         
         # 결과 분석 (성공/실패 분리)
         success_imgs = [r for r in results if r is not None]
@@ -249,45 +248,41 @@ class BatchWikiImageCrawler:
             decoded_name = decoded_name.replace(char, '')        
         return decoded_name
 
-    def extract_imglink(self, data, target_keyword="https://upload.wikimedia.org") -> set:
+    def extract_imglink(self, json_data) -> set:
         links = set()
-        
-        if isinstance(data, (dict, list)):
-            items = data.values() if isinstance(data, dict) else data
-            for item in items:
-                # [수정] target_keyword를 재귀 호출 시에도 전달
-                links.update(self.extract_imglink(item, target_keyword))
-        elif isinstance(data, str):
-            # [수정] 괄호를 전체 URL에 쳐서 전체 주소를 가져오게 함
-            pattern = rf"({re.escape(target_keyword)}[^\s\]]+\.(?:png|jpg|jpeg|svg))"
-            matches = re.findall(pattern, data, re.IGNORECASE)
-            for url in matches:
-                links.add(url) # 이제 URL 전체가 저장됨
-        
+        pattern = r"\[\[(?:File:)?([^\]|]+\.(?:png|jpg|jpeg|svg))"
+        for ind in json_data:
+            comp = json_data[ind]
+            if "type" not in comp:
+                continue
+            if comp["type"] == "image":
+                links.add("https://commons.wikimedia.org/wiki/Special:FilePath/" + comp["src"].replace("File:","").replace("./","").strip())
+            elif comp["type"] == "table":
+                for rows in comp["table"]:
+                    for row_item in rows:
+                        matches = re.findall(pattern, row_item, re.IGNORECASE)
+                        for url in matches:
+                            links.add(url)
         return links
-
-    def process_json_file(self, file_path):
-        if not os.path.exists(file_path):
-            return None
-
-        try:
-            with open(file_path, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-                image_links = self.extract_imglink(data)
-                return image_links
-        except:
-            return None
-
+    
     def get_clean_imglinks(self, filepath_list):
         links = set()
         result_links_pair = set()
         process_count = 0
         
-        for path in filepath_list:
-            found_urls = self.process_json_file(path)
-            if found_urls is not None:
-                links.update(found_urls)
+        for file_path in filepath_list:
+            image_links = set()
+            if not os.path.isfile(file_path):
                 process_count += 1
+                continue
+            with open(file_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+                image_links = self.extract_imglink(data)
+            if "British_Rail_Class" in file_path:
+                print(file_path, image_links)
+            if image_links:
+                links.update(image_links)
+            process_count += 1
         
         print(f"Processed {process_count} paths among {len(filepath_list)} paths")
         

@@ -78,6 +78,7 @@ class WikiPage(BasePage):
         for section in self.source:
             elements = section.find_all(recursive=False)
             clean_elements = self.flatten_elements(elements)
+            # print([elem.name for elem in clean_elements])
             
             for data in clean_elements:
                 data_tag = data.name
@@ -153,9 +154,9 @@ class WikiPage(BasePage):
         table_tag = data
         rows = []
         edge_set = set()
-        for tr in table_tag.find_all('tr'):
+        for tr in table_tag.find_all('tr', recursive=False):
             row_data = []
-            for cell in tr.find_all(['th', 'td']):
+            for cell in tr.find_all(['th', 'td'], recursive=False):
                 row_text, edge = self.convert_tag(cell)
                 row_data.append(row_text)
                 edge_set.update(edge)
@@ -164,19 +165,13 @@ class WikiPage(BasePage):
         
         return TableComponent(table=rows, edge=edge_set)
 
-    def parse_figure(self, data) -> tp.Union[ImageComponent, None]:
-        img_element = data.find('img')
-        if img_element is None:
+    def parse_figure(self, data: Tag) -> tp.Union[ImageComponent, None]:
+        link_element = data.find('a')
+        if link_element is None:
             return None
-        src = img_element.get('src', '')
+        src = link_element.get('href', '')
         if not src:
             return None
-
-        full_url = "https:" + src if src.startswith("//") else src
-        
-        if '/thumb/' in full_url:
-            full_url = full_url.replace('/thumb/', '/')
-            full_url = re.sub(r'/[^/]+$', '', full_url)
 
         caption_tag = data.find('figcaption')
         caption_text = ""
@@ -185,7 +180,7 @@ class WikiPage(BasePage):
         if caption_tag:
             caption_text, edge_set = self.convert_tag(caption_tag)
         
-        return ImageComponent(url=full_url, caption=caption_text, edge=edge_set)
+        return ImageComponent(src=src, caption=caption_text, edge=edge_set)
 
     def convert_images_to_text(self, data: Tag):
         for img in data.find_all('img'):

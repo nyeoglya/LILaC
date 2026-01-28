@@ -1,4 +1,8 @@
+import os
+import json
 import pysbd
+
+from base import *
 
 text = "Taylor Swift was born in West Reading, Penn. She later moved to Nashville, Tenn. at age 14."
 segmenter = pysbd.Segmenter(language="en", clean=False)
@@ -18,13 +22,28 @@ class ProcessedComponent:
         self.subcomponent = [] # (subcomp, embed) list
         self.edge = [] # list(str)
 
-class Preprocessor:
+class DataProcessor:
     def __init__(self, json_filepath: str) -> None:
         self.json_filepath = json_filepath
-        self.component = 
-        self.processed = []
+        self.component: tp.Union[ComponentData, None] = None
 
     def load(self) -> bool:
+        if not os.path.exists(self.json_filepath):
+            print(f"Error: {self.json_filepath} not exists.")
+            return False
+
+        try:
+            with open(self.json_filepath, 'r', encoding='utf-8') as json_file:
+                self.data = json.load(json_file)
+            
+            self.data[0]
+            
+            return True            
+        except json.JSONDecodeError:
+            print("Error: incorrect JSON file format")
+        except Exception as e:
+            print(f"Error: {e}")
+            
         return False
 
     def preprocess(self) -> bool:

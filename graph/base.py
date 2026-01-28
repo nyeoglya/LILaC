@@ -9,16 +9,16 @@ class ComponentData:
         return {"heading_path": self.heading_path, "edge": self.edge}
 
 class ImageComponent(ComponentData):
-    def __init__(self, url: str, caption: str, edge: set=set()) -> None:
+    def __init__(self, src: str, caption: str, edge: set=set()) -> None:
         super().__init__(edge)
-        self.url = url
+        self.src = src
         self.caption = caption
     
     def to_json(self) -> tp.Dict:
-        return {"type": "image", 'url': self.url, 'caption': self.caption, "heading_path": self.heading_path, "edge": self.edge}
+        return {"type": "image", 'src': self.src, 'caption': self.caption, "heading_path": self.heading_path, "edge": self.edge}
     
     def __str__(self) -> str:
-        return f"url: {self.url}, caption: {self.caption}"
+        return f"src: {self.src}, caption: {self.caption}"
 
 class ParagraphComponent(ComponentData):
     def __init__(self, paragraph: str, edge: set=set()) -> None:
@@ -54,7 +54,7 @@ class BasePage:
         return False
     
     def parse_figure(self, data) -> tp.Union[ImageComponent, None]:
-        return ImageComponent("url", "caption")
+        return ImageComponent("src", "caption")
     
     def parse_paragraph(self, data: str) -> tp.Union[ParagraphComponent, None]:
         return ParagraphComponent("paragraph")
