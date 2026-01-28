@@ -1,106 +1,66 @@
 import typing as tp
-import uvicorn
-import torch
+import traceback
 
+import uvicorn
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
-from model import MMEmbed
 from utils import GenerationInput
 
 
-# ======================
-# Config
-# ======================
-MODEL_PATH = "nvidia/MM-Embed"
-BATCH_SIZE = 1  # mm-embed는 batch 키워도 VRAM 급증
+model = None
 
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    global model
+    try:
+        from model import MMEmbed
+        model = MMEmbed(device="cuda:2")
+    except Exception as e:
+        raise RuntimeError(f"Model load failed: {e}")
 
-# ======================
-# App
-# ======================
-app = FastAPI(title="NVIDIA MM-Embed Inference Server")
+    print("[Startup] Model ready.")
+    yield
+    print("[Shutdown] Cleaning up...")
+    model = None
 
-model: tp.Optional[MMEmbed] = None
+app = FastAPI(title="MM-Embed Inference Server", lifespan=lifespan)
 
-
-# ======================
-# Schemas
-# ======================
 class EmbeddingRequest(BaseModel):
-    prompt: str
-
+    instruction: str
+    text: str = ""
+    image_path: str = ""
 
 class EmbeddingResponse(BaseModel):
     embedding: tp.List[float]
     dim: int
 
-
-class BatchItem(BaseModel):
-    prompt: str
-
-
 class BatchEmbeddingRequest(BaseModel):
-    items: tp.List[BatchItem]
-
+    items: tp.List[EmbeddingRequest]
 
 class BatchEmbeddingResponse(BaseModel):
     embeddings: tp.List[tp.List[float]]
     dim: int
-
-
-# ======================
-# Lifecycle
-# ======================
-@app.on_event("startup")
-def load_model():
-    global model
-    print(f"[Startup] Loading model: {MODEL_PATH}")
-
-    try:
-        model = MMEmbed(
-            model_path=MODEL_PATH,
-            device_map="auto",
-            torch_dtype=torch.float32,
-        )
-    except Exception as e:
-        # ❌ 서버만 살아있는 상태 방지
-        raise RuntimeError(f"Model load failed: {e}")
-
-    print("[Startup] Model ready.")
-
-
-# ======================
-# Endpoints
-# ======================
-@app.get("/health")
-def health():
-    if model is None:
-        raise HTTPException(status_code=503, detail="Model not loaded")
-
-    return {
-        "status": "ok",
-        "model": MODEL_PATH,
-        "cuda": torch.cuda.is_available(),
-        "gpu_count": torch.cuda.device_count(),
-    }
-
 
 @app.post("/embed", response_model=EmbeddingResponse)
 def embed(request: EmbeddingRequest):
     if model is None:
         raise HTTPException(status_code=503, detail="Model not initialized")
 
-    gen_input = GenerationInput(text_prompt=request.prompt)
+    gen_input = GenerationInput(
+        instruction=request.instruction,
+        text=request.text,
+        image_path=request.image_path,
+    )
 
     try:
-        embeddings = model.get_embeddings([gen_input], batch_size=1)
+        emb = model.get_embeddings([gen_input])
+        vec = emb.squeeze(0).tolist()
+        return EmbeddingResponse(embedding=vec, dim=len(vec))
     except Exception as e:
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
-
-    vec = embeddings[0].tolist()
-    return EmbeddingResponse(embedding=vec, dim=len(vec))
-
 
 @app.post("/embed/batch", response_model=BatchEmbeddingResponse)
 def embed_batch(request: BatchEmbeddingRequest):
@@ -108,27 +68,27 @@ def embed_batch(request: BatchEmbeddingRequest):
         raise HTTPException(status_code=503, detail="Model not initialized")
 
     gen_inputs = [
-        GenerationInput(text_prompt=item.prompt)
-        for item in request.items
+        GenerationInput(
+            instruction=i.instruction,
+            text=i.text,
+            image_path=i.image_path,
+        ) 
+        for i in request.items
     ]
 
     try:
-        embeddings = model.get_embeddings(gen_inputs, batch_size=BATCH_SIZE)
+        embeddings = model.get_embeddings(gen_inputs)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-    vectors = embeddings.tolist()
+    vecs = embeddings.tolist()
     return BatchEmbeddingResponse(
-        embeddings=vectors,
-        dim=len(vectors[0]) if vectors else 0,
+        embeddings=vecs,
+        dim=len(vecs[0]) if vecs else 0,
     )
 
 
-# ======================
-# Entrypoint
-# ======================
 if __name__ == "__main__":
-    # ⚠️ 반드시 workers=1
     uvicorn.run(
         "server:app",
         host="0.0.0.0",

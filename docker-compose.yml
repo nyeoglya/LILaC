@@ -17,12 +17,11 @@ services:
   mmembed:
     build:
       context: ./mmembed
-      dockerfile: ./Dockerfile
+      dockerfile: Dockerfile
     container_name: lilac-mmembed
+    image: lilac-mmembed-image
     networks:
       - network
-    image: lilac-mmembed-image
-    runtime: nvidia
     shm_size: '16gb'
     volumes:
       - ./mmembed:/app
@@ -30,6 +29,15 @@ services:
     environment:
       - MODEL_PATH=nvidia/MM-Embed
       - HF_HOME=/root/.cache/huggingface
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
     tty: true
     stdin_open: true
 
