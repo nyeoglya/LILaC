@@ -5,11 +5,7 @@ WORKDIR /app
 RUN pip install --no-cache-dir --upgrade pip
 
 RUN pip install --no-cache-dir \
-    "pysbd"
-
-RUN pip install --no-cache-dir \
-    "fastapi" \
-    "uvicorn" \
-    "pydantic"
+    "requests" \
+    "beautifulsoup4"
 
 COPY . .

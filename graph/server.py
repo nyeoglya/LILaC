@@ -3,7 +3,7 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 import typing as tp
 
-from model import LILaCGraph
+from graph.graph import LILaCGraph
 
 app = FastAPI(title="LILaC Graph Server")
 

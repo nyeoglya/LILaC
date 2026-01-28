@@ -1,6 +1,16 @@
 version: '2.4'
 
 services:
+  preprocess:
+    build:
+      context: ./preprocess
+      dockerfile: Dockerfile
+    container_name: lilac-preprocess
+    image: lilac-preprocess-image
+    volumes:
+      - ./preprocess:/app
+    tty: true
+    stdin_open: true
   graph:
     build:
       context: ./graph
@@ -13,7 +23,6 @@ services:
       - ./graph:/app
     tty: true
     stdin_open: true
-    command: tail -f /dev/null
   mmembed:
     build:
       context: ./mmembed
