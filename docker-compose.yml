@@ -13,8 +13,25 @@ services:
       - ./graph:/app
     tty: true
     stdin_open: true
-    # 개발 단계에서는 아래처럼 무한 대기시키고, 배포 때는 실제 실행 명령으로 바꿉니다.
     command: tail -f /dev/null
+  mmembed:
+    build:
+      context: ./mmembed
+      dockerfile: ./Dockerfile
+    container_name: lilac-mmembed
+    networks:
+      - network
+    image: lilac-mmembed-image
+    runtime: nvidia
+    shm_size: '16gb'
+    volumes:
+      - ./mmembed:/app
+      - ./mmembed/hf_models:/root/.cache/huggingface
+    environment:
+      - MODEL_PATH=nvidia/MM-Embed
+      - HF_HOME=/root/.cache/huggingface
+    tty: true
+    stdin_open: true
 
 networks:
   network:

@@ -1,0 +1,13 @@
+**/hf_cache/
+**/hf_models/
+**/database/
+**/import/
+**/freebase-server/
+
+**/*.log
+**/*.gz
+**/*.db
+**/*.trx
+
+**/__pycache__/
+**/*.py[cod]
