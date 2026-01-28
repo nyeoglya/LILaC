@@ -7,4 +7,8 @@ crawler/crawled_*
 crawler/MMQA_dev.jsonl
 
 # log files
-crawler/crawler.log
+*.log
+
+# model files
+hf_models
+hf_cache
