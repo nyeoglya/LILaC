@@ -1,31 +1,27 @@
 import os
 import json
+import typing as tp
+
 import pysbd
 
-from base import *
-
-text = "Taylor Swift was born in West Reading, Penn. She later moved to Nashville, Tenn. at age 14."
-segmenter = pysbd.Segmenter(language="en", clean=False)
-
-sentences = segmenter.segment(text)
-for i, sent in enumerate(sentences):
-    print(f"[{i}] {sent}")
-
-# [0] Taylor Swift was born in West Reading, Penn.
-# [1] She later moved to Nashville, Tenn. at age 14.
+class SubComponent:
+    def __init__(self, element) -> None:
+        self.embedding = None
+        self.element = element
 
 class ProcessedComponent:
-    def __init__(self, component_data) -> None:
-        self.component_data = component_data
-        self.embed = None # embed vector
+    def __init__(self, sub_id: int, component_data) -> None:
+        self.sub_id: int = sub_id
+        self.component_data = component_data # TODO
+        self.embedding = None # embed vector
         self.heading_path = []
-        self.subcomponent = [] # (subcomp, embed) list
+        self.sub_component = []
         self.edge = [] # list(str)
 
-class DataProcessor:
+class LILaCDocument:
     def __init__(self, json_filepath: str) -> None:
         self.json_filepath = json_filepath
-        self.component: tp.Union[ComponentData, None] = None
+        self.processed_component: tp.List[ProcessedComponent] = []
 
     def load(self) -> bool:
         if not os.path.exists(self.json_filepath):
@@ -45,16 +41,31 @@ class DataProcessor:
             print(f"Error: {e}")
             
         return False
-
-    def preprocess(self) -> bool:
-        return False
     
-    def embedding(self, data) -> bool:
+    def run(self) -> bool:
+        # parsing & document embedding
+        # making subcomponenet
         return False
     
     def make_subcomponent(self, data) -> bool:
         return False
+    
+    def embedding(self, data) -> bool:
+        return False
 
-class BatchPreprocessor:
-    def __init__(self) -> None:
-        pass
+
+class BatchDataProcessor:
+    def __init__(self, folder_path) -> None:
+        self.folder_path = folder_path
+
+    def batch_run(self) -> bool:
+        return False
+
+
+if __name__ == "__main__":    
+    text = "Taylor Swift was born in West Reading, Penn. She later moved to Nashville, Tenn. at age 14."
+    segmenter = pysbd.Segmenter(language="en", clean=False)
+
+    sentences = segmenter.segment(text)
+    for i, sent in enumerate(sentences):
+        print(f"[{i}] {sent}")
