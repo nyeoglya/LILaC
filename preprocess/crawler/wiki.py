@@ -278,8 +278,6 @@ class BatchWikiImageCrawler:
             with open(file_path, 'r', encoding='utf-8') as f:
                 data = json.load(f)
                 image_links = self.extract_imglink(data)
-            if "British_Rail_Class" in file_path:
-                print(file_path, image_links)
             if image_links:
                 links.update(image_links)
             process_count += 1

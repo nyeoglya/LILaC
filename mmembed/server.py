@@ -4,10 +4,9 @@ import traceback
 import uvicorn
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from utils import GenerationInput
-
 
 model = None
 
@@ -30,7 +29,7 @@ app = FastAPI(title="MM-Embed Inference Server", lifespan=lifespan)
 class EmbeddingRequest(BaseModel):
     instruction: str
     text: str = ""
-    image_path: str = ""
+    img_paths: tp.List[str] = Field(default_factory=list)
 
 class EmbeddingResponse(BaseModel):
     embedding: tp.List[float]
@@ -51,7 +50,7 @@ def embed(request: EmbeddingRequest):
     gen_input = GenerationInput(
         instruction=request.instruction,
         text=request.text,
-        image_path=request.image_path,
+        img_paths=request.img_paths,
     )
 
     try:
@@ -71,7 +70,7 @@ def embed_batch(request: BatchEmbeddingRequest):
         GenerationInput(
             instruction=i.instruction,
             text=i.text,
-            image_path=i.image_path,
+            img_paths=i.img_paths,
         ) 
         for i in request.items
     ]

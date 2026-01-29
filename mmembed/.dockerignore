@@ -2,7 +2,6 @@
 **/hf_models/
 **/database/
 **/import/
-**/freebase-server/
 
 **/*.log
 **/*.gz
