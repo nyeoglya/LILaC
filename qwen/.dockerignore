@@ -1,0 +1,12 @@
+**/hf_cache/
+**/hf_models/
+**/database/
+**/import/
+
+**/*.log
+**/*.gz
+**/*.db
+**/*.trx
+
+**/__pycache__/
+**/*.py[cod]

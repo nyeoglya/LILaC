@@ -1,11 +1,11 @@
-version: '2.4'
-
 services:
   preprocess:
     build:
       context: ./preprocess
       dockerfile: Dockerfile
     container_name: lilac-preprocess
+    networks:
+      - network
     image: lilac-preprocess-image
     volumes:
       - ./preprocess:/app
@@ -21,6 +21,7 @@ services:
     image: lilac-graph-image
     volumes:
       - ./graph:/app
+      - ./dataset:/app/dataset
     tty: true
     stdin_open: true
   mmembed:
@@ -35,8 +36,36 @@ services:
     volumes:
       - ./mmembed:/app
       - ./mmembed/hf_models:/root/.cache/huggingface
+      - ./dataset:/app/dataset
     environment:
       - MODEL_PATH=nvidia/MM-Embed
+      - HF_HOME=/root/.cache/huggingface
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    tty: true
+    stdin_open: true
+  qwen:
+    build:
+      context: ./qwen
+      dockerfile: Dockerfile
+    container_name: lilac-qwen
+    image: lilac-qwen-image
+    networks:
+      - network
+    shm_size: '16gb'
+    volumes:
+      - ./qwen:/app
+      - ./qwen/hf_models:/root/.cache/huggingface
+      - ./dataset:/app/dataset
+    environment:
+      - MODEL_PATH=Qwen/Qwen3-VL-8B-Instruct
       - HF_HOME=/root/.cache/huggingface
       - NVIDIA_VISIBLE_DEVICES=all
       - NVIDIA_DRIVER_CAPABILITIES=compute,utility
@@ -52,4 +81,5 @@ services:
 
 networks:
   network:
+    name: lilac-network
     driver: bridge
