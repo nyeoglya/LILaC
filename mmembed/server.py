@@ -27,7 +27,6 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="MM-Embed Inference Server", lifespan=lifespan)
 
 class EmbeddingRequest(BaseModel):
-    instruction: str = ""
     text: str = ""
     img_path: str = ""
 
@@ -41,12 +40,11 @@ class BatchEmbeddingResponse(BaseModel):
     embeddings: tp.List[tp.List[float]]
 
 @app.post("/embed", response_model=EmbeddingResponse)
-def embed(request: EmbeddingRequest):
+async def embed(request: EmbeddingRequest):
     if model is None:
         raise HTTPException(status_code=503, detail="Model not initialized")
 
     gen_input = GenerationInput(
-        instruction=request.instruction,
         text=request.text,
         img_path=request.img_path,
     )
@@ -60,12 +58,11 @@ def embed(request: EmbeddingRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/embed/batch", response_model=BatchEmbeddingResponse)
-def embed_batch(request: BatchEmbeddingRequest):
+async def embed_batch(request: BatchEmbeddingRequest):
     if model is None:
         raise HTTPException(status_code=503, detail="Model not initialized")
 
     gen_inputs = [GenerationInput(
-        instruction=i.instruction,
         text=i.text,
         img_path=i.img_path,
     ) for i in request.items]

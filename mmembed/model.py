@@ -44,13 +44,11 @@ class MMEmbed:
         
         outputs = self.model.encode(
             [item],
-            is_query=True,
-            instruction=gen_input.instruction,
+            is_query=False,
             max_length=4096,
         )
 
         return outputs["hidden_states"].cpu()
-
 
     @torch.inference_mode()
     def batch_embedding(self, gen_inputs: tp.List[GenerationInput]):
@@ -68,7 +66,8 @@ class MMEmbed:
                     if loaded_svg_img:
                         item["img"] = loaded_svg_img.convert("RGB")
                 else:
-                    item["img"] = Image.open(gi.img_path).convert("RGB")
+                    with Image.open(gi.img_path) as img:
+                        item["img"] = img.convert("RGB")
 
             items.append(item)
 
@@ -83,34 +82,44 @@ class MMEmbed:
                 text_only.append((idx, item))
 
         # 결과 버퍼
-        embeddings: tp.List[torch.Tensor] = [torch.tensor([0])] * len(items)
-        instruction = gen_inputs[0].instruction
+        embeddings = [None] * len(items)
 
         # text-only batch encode
         if text_only:
-            idxs, batch_items = zip(*text_only)
-            embs = self.model.encode(
-                list(batch_items),
-                is_query=True,
-                instruction=instruction,
-                max_length=4096,
-            )["hidden_states"]
+            text_batches = [text_only[i:i+2] for i in range(0, len(text_only), 2)]
+            idx_list = []
+            batch_list = []
+            for text_batch in text_batches:
+                idxs, batch_items = zip(*text_batch)
+                embs = self.model.encode(
+                    list(batch_items),
+                    is_query=False,
+                    max_length=4096,
+                )["hidden_states"]
+                idx_list.extend(idxs)
+                batch_list.extend(embs)
 
-            for i, emb in zip(idxs, embs):
+            for i, emb in zip(idx_list, batch_list):
                 embeddings[i] = emb
 
         # text+image batch encode
         if text_image:
-            idxs, batch_items = zip(*text_image)
-            embs = self.model.encode(
-                list(batch_items),
-                is_query=True,
-                instruction=instruction,
-                max_length=4096,
-            )["hidden_states"]
+            image_batches = [text_image[i:i+2] for i in range(0, len(text_image), 2)]
+            idx_list = []
+            batch_list = []
+            for image_batch in image_batches:
+                idxs, batch_items = zip(*image_batch)
+                embs = self.model.encode(
+                    list(batch_items),
+                    is_query=False,
+                    max_length=4096,
+                )["hidden_states"]
+                idx_list.extend(idxs)
+                batch_list.extend(embs)
 
-            for i, emb in zip(idxs, embs):
+            for i, emb in zip(idx_list, batch_list):
                 embeddings[i] = emb
 
+        torch.cuda.empty_cache()
         # 최종 stack
         return torch.stack(embeddings, dim=0).cpu()
