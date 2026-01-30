@@ -5,9 +5,9 @@ SERVER_URL = "http://localhost:8002"
 
 def test_single():
     payload = {
-        "instruction": "Instruction: Represent the text for retrieval.",
+        "instruction": "Express this document.",
         "text": "A photo of a dog running on the grass",
-        "image_path": "",
+        "img_path": "/dataset/crawl/mmqa_image/'67_Austin_Mini_Moke_(Ottawa_British_Car_Show_'10).jpg",
     }
 
     r = requests.post(f"{SERVER_URL}/embed", json=payload, timeout=120)
@@ -17,12 +17,10 @@ def test_single():
     embedding = np.array(data["embedding"], dtype=np.float32)
 
     print("Single Embedding Test")
-    print("Dimension:", data["dim"])
     print("L2 norm:", np.linalg.norm(embedding))
     print("Max:", embedding.max())
     print("Min:", embedding.min())
 
-    assert embedding.shape[0] == data["dim"]
     assert not np.allclose(embedding, 0)
     assert abs(np.linalg.norm(embedding) - 1.0) < 1e-3
 

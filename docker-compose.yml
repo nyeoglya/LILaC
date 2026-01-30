@@ -9,6 +9,18 @@ services:
     image: lilac-preprocess-image
     volumes:
       - ./preprocess:/app
+      - ./dataset:/dataset
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    shm_size: '16gb'
+    environment:
+      - PYTHONUNBUFFERED=1
+      - CUDA_VISIBLE_DEVICES=0
     tty: true
     stdin_open: true
   graph:
@@ -21,7 +33,7 @@ services:
     image: lilac-graph-image
     volumes:
       - ./graph:/app
-      - ./dataset:/app/dataset
+      - ./dataset:/dataset
     tty: true
     stdin_open: true
   mmembed:
@@ -36,7 +48,7 @@ services:
     volumes:
       - ./mmembed:/app
       - ./mmembed/hf_models:/root/.cache/huggingface
-      - ./dataset:/app/dataset
+      - ./dataset:/dataset
     environment:
       - MODEL_PATH=nvidia/MM-Embed
       - HF_HOME=/root/.cache/huggingface
@@ -63,7 +75,7 @@ services:
     volumes:
       - ./qwen:/app
       - ./qwen/hf_models:/root/.cache/huggingface
-      - ./dataset:/app/dataset
+      - ./dataset:/dataset
     environment:
       - MODEL_PATH=Qwen/Qwen3-VL-8B-Instruct
       - HF_HOME=/root/.cache/huggingface
