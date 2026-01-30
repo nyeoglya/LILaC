@@ -1,20 +1,24 @@
 import os
 import re
 import json
+import pickle
 import typing as tp
+from urllib.parse import unquote
+
+import numpy as np
 
 from utils import *
 import pysbd
 
-import pickle
-
 class ProcessedComponent:
-    def __init__(self) -> None:
+    def __init__(self, component) -> None:
         self.id: int = 0 # unique id
         self.file_name: str = ""
+        self.component = component
         self.heading_path = [] # list(str)
         
-        self.subcomp_embedding = [] # list(subcomp embed vector id)
+        self.embedding: np.array = np.array([])
+        self.subcomp_embeddings: tp.List[np.array] = [] # list(subcomp embed vector id)
         self.edge: tp.List[int] = [] # list(comp unique id)
 
 class LILaCDocument:
@@ -26,7 +30,6 @@ class LILaCDocument:
         self.doc_title = ""
         self.json_data = None
         
-        self.embedding = None
         self.processed_components: tp.List[ProcessedComponent] = []
 
     def save(self, save_path: str) -> bool:
@@ -73,7 +76,6 @@ class LILaCDocument:
         # parsing
         self.doc_title = self.json_data["0"]["title"]
         
-        text_list = []
         comp_id = start_comp_id
         for comp_key in self.json_data:
             if comp_key == "0":
@@ -81,14 +83,16 @@ class LILaCDocument:
             
             comp_data = self.json_data[comp_key]
             result_comp = None
-            if comp_data['type'] == "paragraph":
-                result_comp, text = self.process_text_component(comp_data)
-                text_list.append(text)
-            elif comp_data['type'] == "table":
-                result_comp, text = self.process_table_component(comp_data)
-                text_list.append(text)
-            elif comp_data['type'] == "image":
-                result_comp = self.process_image_component(comp_data)
+            try:
+                if comp_data['type'] == "paragraph":
+                    result_comp = self.process_text_component(comp_data)
+                elif comp_data['type'] == "table":
+                    result_comp = self.process_table_component(comp_data)
+                elif comp_data['type'] == "image":
+                    result_comp = self.process_image_component(comp_data)
+            except:
+                print(f"ERROR: {comp_data}")
+                exit(-1)
             
             if result_comp is not None:
                 result_comp.id = comp_id
@@ -96,25 +100,21 @@ class LILaCDocument:
                 self.processed_components.append(result_comp)
             comp_id += 1
         
-        # document embedding
-        full_text = "".join(text_list)
-        self.embedding = get_embedding(EmbeddingRequestData("Express this document.", full_text, ""))
-        
         return comp_id
     
     def process_text_component(self, component) -> ProcessedComponent:
-        result_comp = ProcessedComponent()
+        result_comp = ProcessedComponent(component)
         sentences = self.text_segmenter.segment(component['paragraph'])
         subcomp_requests = []
-        instruction = "Express this table."
         for sentence in sentences:
-            subcomp_requests.append(EmbeddingRequestData(instruction, sentence, ""))
+            subcomp_requests.append(EmbeddingRequestData(sentence, ""))
         
         result_comp.heading_path = component["heading_path"]
         result_comp.edge = component["edge"] # temporary
-        result_comp.subcomp_embedding = get_batch_embedding(subcomp_requests)
         
-        return result_comp, component['paragraph']
+        result_comp.embedding = get_embedding(EmbeddingRequestData(component['paragraph'].replace("\n",""), ""))
+        result_comp.subcomp_embeddings = get_batch_embedding(subcomp_requests)
+        return result_comp
     
     def flatten_table(self, table_data):
         pattern = r"\[\[([^\]]+)\]\]"
@@ -126,7 +126,9 @@ class LILaCDocument:
             for table_elem in table_row:
                 elem_img_lists = [self.get_clean_imagepath(item) for item in re.findall(pattern, table_elem)]
                 image_path_list.extend(elem_img_lists)
-                temp_list.append(re.sub(pattern, '', table_elem).strip())
+                text = re.sub(pattern, '', table_elem).strip()
+                if text:
+                    temp_list.append(text)
             result_text_list.append(" [SEP] ".join(temp_list))
         result_text = " \n ".join(result_text_list)
         
@@ -140,9 +142,8 @@ class LILaCDocument:
         return result_text, clean_image_path_list
     
     def process_table_component(self, component) -> ProcessedComponent:
-        result_comp = ProcessedComponent()
-        subcomp_requests = []
-        instruction = "Express this table."
+        result_comp = ProcessedComponent(component)
+        subcomp_embeddings = []
         original_table = component["table"]
         
         first_line = original_table[0]
@@ -152,29 +153,27 @@ class LILaCDocument:
         if is_nm: # NxM structure
             if len(original_table) == 1:
                 text, img_paths = self.flatten_table([first_line])
-                subcomp_requests.append(EmbeddingRequestData(instruction, text, img_paths[0] if img_paths else ""))
+                subcomp_embeddings.append(get_embedding(EmbeddingRequestData(text, img_paths[0] if img_paths else "")))
             else:
                 for table_line in original_table[1:]:
                     text, img_paths = self.flatten_table([first_line, table_line])
-                    subcomp_requests.append(EmbeddingRequestData(instruction, text, img_paths[0] if img_paths else ""))
+                    subcomp_embeddings.append(get_embedding(EmbeddingRequestData(text, img_paths[0] if img_paths else "")))
         else: # not NxM structure (ex: infobox)
             for table_line in original_table:
                 text, img_paths = self.flatten_table([table_line])
-                subcomp_requests.append(EmbeddingRequestData(instruction, text, img_paths[0] if img_paths else ""))
+                subcomp_embeddings.append(get_embedding(EmbeddingRequestData(text, img_paths[0] if img_paths else "")))
         
         result_comp.heading_path = component["heading_path"]
         result_comp.edge = component["edge"] # temporary
         
-        full_text, _ = self.flatten_table(original_table)
+        result_comp.subcomp_embeddings = subcomp_embeddings
+        result_comp.embedding = np.mean(np.stack(subcomp_embeddings, axis=0), axis=0)
         
-        result_comp.subcomp_embedding = get_batch_embedding(subcomp_requests)
-        
-        return result_comp, full_text
+        return result_comp
     
     def get_clean_imagepath(self, image_str):
         invalid_chars = '<>:"/\\|?*'
-        
-        clean_name = image_str
+        clean_name = unquote(image_str)
         if "File:" in clean_name:
             clean_name = clean_name.split("File:")[1]
         elif "https://" in clean_name:
@@ -186,8 +185,7 @@ class LILaCDocument:
         return full_path
     
     def process_image_component(self, component) -> ProcessedComponent:
-        result_comp = ProcessedComponent()
-        instruction = "Express this images."
+        result_comp = ProcessedComponent(component)
         
         full_path = self.get_clean_imagepath(component["src"])
         
@@ -198,56 +196,106 @@ class LILaCDocument:
         result_comp.heading_path = component["heading_path"]
         result_comp.edge = component["edge"]
         
-        result_comp.subcomp_embedding = [get_embedding(EmbeddingRequestData(instruction, component["caption"], full_path))]
+        result_comp.embedding = get_embedding(EmbeddingRequestData(component["caption"], full_path))
+        result_comp.subcomp_embeddings = [result_comp.embedding]
 
         return result_comp
 
 class BatchDataProcessor:
-    def __init__(self, folder_path, img_folder, save_folder) -> None:
-        self.folder_path = folder_path
-        self.img_folder = img_folder
-        self.save_folder = save_folder
+    def __init__(self, json_folder_path: str, img_folder: str, ldoc_folder_path: str) -> None:
+        self.json_folder_path: str = json_folder_path
+        self.img_folder: str = img_folder
+        self.ldoc_folder_path: str = ldoc_folder_path
         
-        self.json_path_list = []
-        self.lilac_doc_list = []
+        self.json_path_list: tp.List[str] = []
+        self.lilac_doc_dict: tp.Dict[str, LILaCDocument] = dict()
         
         self.segmenter = pysbd.Segmenter(language="en", clean=False)
 
     def load(self) -> bool:
-        if not os.path.exists(self.folder_path):
+        if not os.path.exists(self.ldoc_folder_path):
+            return False
+
+        self.lilac_doc_dict = {}
+        for filename in os.listdir(self.ldoc_folder_path):
+            if filename.endswith(".ldoc"):
+                file_path = os.path.join(self.ldoc_folder_path, filename)
+                new_doc = LILaCDocument.load(file_path)
+                self.lilac_doc_dict[new_doc.doc_title] = new_doc
+
+        return True
+
+    def load_json(self) -> bool:
+        if not os.path.exists(self.json_folder_path):
             return False
 
         self.json_path_list = []
-        for filename in os.listdir(self.folder_path):
+        for filename in os.listdir(self.json_folder_path):
             if filename.endswith(".json"):
-                file_path = os.path.join(self.folder_path, filename)
+                file_path = os.path.join(self.json_folder_path, filename)
                 self.json_path_list.append(file_path)
 
         return True
 
-    def edge_remapping(self):
-        pass
+    def edge_remapping(self) -> bool:
+        if not len(self.lilac_doc_dict):
+            return False
+
+        edge_range_map: tp.Dict[str, tp.Tuple[int, int]] = dict()
+        for doc_title in self.lilac_doc_dict:
+            lilac_doc = self.lilac_doc_dict[doc_title]
+            if not lilac_doc.processed_components:
+                continue
+            first_comp_id = lilac_doc.processed_components[0].id
+            last_comp_id = lilac_doc.processed_components[-1].id
+            edge_range_map[doc_title] = list(range(first_comp_id, last_comp_id + 1))
+        
+        for doc_title in self.lilac_doc_dict:
+            lilac_doc = self.lilac_doc_dict[doc_title]
+            for processed_comp in lilac_doc.processed_components:
+                id_edge_list = []
+                for edge_name in processed_comp.edge:
+                    edge_range = edge_range_map.get(edge_name)
+                    if edge_range:
+                        id_edge_list.extend(edge_range)
+                processed_comp.edge = id_edge_list
+
+        for remapped_doc in self.lilac_doc_dict.values():
+            remapped_doc.save(os.path.join(self.ldoc_folder_path, f"{remapped_doc.doc_title}.ldoc.remapped"))
+
+        return True
 
     def batch_run(self) -> bool:
-        self.lilac_doc_list = []
         comp_id = 0
         for json_path in self.json_path_list:
             new_doc = LILaCDocument(json_path, self.segmenter, self.img_folder)
             new_doc.load_json()
-            comp_id = new_doc.run(comp_id)
-            new_doc.save(os.path.join(self.save_folder, f"{new_doc.doc_title}.ldoc"))
+            new_doc_title = new_doc.json_data["0"]["title"]
+            new_ldoc_path = os.path.join(self.ldoc_folder_path, f"{new_doc_title}.ldoc")
+            if os.path.exists(new_ldoc_path):
+                print(f"Skip document {new_doc_title} as it is already parsed.")
+                continue
+            
+            try:
+                comp_id = new_doc.run(comp_id)
+                new_doc.save(new_ldoc_path)
+                self.lilac_doc_dict[new_doc.doc_title] = new_doc
+            except:
+                print(f"Skip document {new_doc_title} as it failed")
         return True
 
 if __name__ == "__main__":
-    JSON_FOLDER = "/dataset/crawl/mmqa_html_top5/"
+    JSON_FOLDER = "/dataset/crawl/mmqa_html/"
     IMG_FOLDER = "/dataset/crawl/mmqa_image/"
-    SAVE_FOLDER = "/dataset/process/mmqa/"
+    LDOC_FOLDER = "/dataset/process/mmqa/"
     
-    batch_data_processor = BatchDataProcessor(JSON_FOLDER, IMG_FOLDER, SAVE_FOLDER)
+    batch_data_processor = BatchDataProcessor(JSON_FOLDER, IMG_FOLDER, LDOC_FOLDER)
     test_segmenter = pysbd.Segmenter(language="en", clean=False,)
-    batch_data_processor.load()
-    print(batch_data_processor.json_path_list)
+    batch_data_processor.load_json()
     batch_data_processor.batch_run()
+    
+    # batch_data_processor.load()
+    batch_data_processor.edge_remapping()
     
     '''
     lilac_doc = LILaCDocument('test.json', test_segmenter, IMG_FOLDER)
