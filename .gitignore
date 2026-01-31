@@ -5,6 +5,7 @@
 dataset/
 crawler/crawled_*
 crawler/MMQA_dev.jsonl
+*.lgraph
 
 # log files
 *.log
