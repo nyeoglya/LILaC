@@ -293,13 +293,4 @@ if __name__ == "__main__":
     test_segmenter = pysbd.Segmenter(language="en", clean=False,)
     batch_data_processor.load_json()
     batch_data_processor.batch_run()
-    
-    # batch_data_processor.load()
     batch_data_processor.edge_remapping()
-    
-    '''
-    lilac_doc = LILaCDocument('test.json', test_segmenter, IMG_FOLDER)
-    lilac_doc.load_json()
-    lilac_doc.run(0)
-    lilac_doc.save('test.ldoc')
-    '''
