@@ -45,7 +45,7 @@ class MMEmbed:
         outputs = self.model.encode(
             [item],
             is_query=False,
-            max_length=4096,
+            max_length=1024,
         )
 
         return outputs["hidden_states"].cpu()
@@ -94,7 +94,7 @@ class MMEmbed:
                 embs = self.model.encode(
                     list(batch_items),
                     is_query=False,
-                    max_length=4096,
+                    max_length=1024,
                 )["hidden_states"]
                 idx_list.extend(idxs)
                 batch_list.extend(embs)
@@ -112,7 +112,7 @@ class MMEmbed:
                 embs = self.model.encode(
                     list(batch_items),
                     is_query=False,
-                    max_length=4096,
+                    max_length=1024,
                 )["hidden_states"]
                 idx_list.extend(idxs)
                 batch_list.extend(embs)

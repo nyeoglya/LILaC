@@ -6,7 +6,7 @@ def test_single():
     payload = {
         "instruction": "Instruction: Represent the text for retrieval.",
         "text": "Introduce yourself.",
-        "image_path": "",
+        "img_paths": [],
     }
 
     r = requests.post(f"{SERVER_URL}/generate", json=payload, timeout=120)
