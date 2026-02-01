@@ -1,8 +1,14 @@
+import os
 import requests
+import typing as tp
+from urllib.parse import unquote
+from dataclasses import dataclass
+
 import numpy as np
 
-import typing as tp
-from dataclasses import dataclass
+JSON_FOLDER = "/dataset/crawl/mmqa_html/"
+IMG_FOLDER = "/dataset/crawl/mmqa_image/"
+LDOC_FOLDER = "/dataset/process/mmqa/"
 
 MMEMBED_SERVER_URL = "http://lilac-mmembed:8002"
 QWEN_SERVER_URL = "http://lilac-qwen:8003"
@@ -11,6 +17,19 @@ QWEN_SERVER_URL = "http://lilac-qwen:8003"
 class EmbeddingRequestData:
     text: str = ""
     img_path: str = ""
+
+def get_clean_imagepath(img_folder, image_str):
+    invalid_chars = '<>:"/\\|?*'
+    clean_name = unquote(image_str)
+    if "File:" in clean_name:
+        clean_name = clean_name.split("File:")[1]
+    elif "https://" in clean_name:
+        clean_name = clean_name.split("/")[-1]
+    for char in invalid_chars:
+        clean_name = clean_name.replace(char, '')
+
+    full_path = os.path.join(img_folder, clean_name)
+    return full_path
 
 def get_query_embedding(instruction, text, img_path="") -> tp.List[float]:
     payload = {

@@ -10,6 +10,7 @@ class LILaCGraph:
     def __init__(self, filepath: str) -> None:
         self.filepath: str = filepath
         self.comp_map: tp.List[dict] = [] # comp id -> component
+        self.comp_doc_map: tp.List[str] = [] # comp id -> doc title
         self.comp_embedding_map: np.array = np.array([]) # comp id -> comp embedding
         
         self.subcomp_embeddings_dump: np.array = np.array([]) # comp id -> array slicing(=subcomponent_embedding)
@@ -27,11 +28,11 @@ class LILaCGraph:
                 # 저장된 객체를 불러와서 현재 인스턴스의 속성들에 덮어씌움
                 data = pickle.load(f)
                 self.comp_map = data.comp_map
+                self.comp_doc_map = data.comp_doc_map # 필드 추가
                 self.comp_embedding_map = data.comp_embedding_map
                 self.subcomp_embeddings_dump = data.subcomp_embeddings_dump
                 self.subcomp_range_map = data.subcomp_range_map
                 self.edge = data.edge
-            print(f"Successfully loaded graph from {self.filepath}")
             return True
         except Exception as e:
             print(f"Load failed: {e}")
@@ -62,10 +63,11 @@ class LILaCGraph:
 
         graph = LILaCGraph(filepath)
         graph.comp_map = [None] * N
+        graph.comp_doc_map = [None] * N
         graph.edge = [None] * N
         graph.subcomp_range_map = np.zeros((N, 2), dtype=np.int64)
 
-        # 임베딩 차원 파악 및 총 서브컴포넌트 개수 계산 (Pre-allocation 준비)
+        # 임베딩 차원 파악 및 총 서브 컴포넌트 개수 계산 (Pre-allocation 준비)
         sample_emb = all_comps[0].embedding
         emb_dim = sample_emb.shape[0]
         total_sub_count = sum(len(c.subcomp_embeddings) for c in all_comps)
@@ -78,128 +80,133 @@ class LILaCGraph:
         print(f"Processing {N} components and {total_sub_count} sub-embeddings...")
 
         # 데이터 채우기
-        for comp in all_comps:
-            cid = comp.id # 정렬했으므로 i와 같을 확률이 높지만 cid 사용
+        for ldoc in ldocs:
+            # 현재 문서에 속한 모든 컴포넌트의 ID 목록 추출
+            doc_comp_ids = [comp.id for comp in ldoc.processed_components]
             
-            graph.comp_map[cid] = comp.component
-            graph.edge[cid] = comp.edge
-            
-            # 직접 할당
-            graph.comp_embedding_map[cid] = comp.embedding
+            for comp in ldoc.processed_components:
+                cid = comp.id
+                
+                graph.comp_map[cid] = comp.component
+                graph.comp_doc_map[cid] = ldoc.doc_title
+                
+                # 엣지 생성 로직
+                edges = set(comp.edge) if comp.edge else set()
+                edges.add(cid)
+                edges.update(doc_comp_ids)
+                graph.edge[cid] = list(edges)
+                
+                # 임베딩 할당
+                graph.comp_embedding_map[cid] = comp.embedding
 
-            sub_embs = comp.subcomp_embeddings
-            k = len(sub_embs)
-            
-            if k > 0:
-                start, end = cursor, cursor + k
-                graph.subcomp_range_map[cid] = (start, end)
-                # 서브컴포넌트 임베딩들을 한 번에 슬라이싱으로 할당
-                graph.subcomp_embeddings_dump[start:end] = np.array(sub_embs)
-                cursor = end
+                sub_embs = comp.subcomp_embeddings
+                k = len(sub_embs)
+                if k > 0:
+                    start, end = cursor, cursor + k
+                    graph.subcomp_range_map[cid] = (start, end)
+                    graph.subcomp_embeddings_dump[start:end] = np.array(sub_embs)
+                    cursor = end
 
         # Pickle 저장 최적화
         print(f"Saving to {filepath}...")
         with open(filepath, "wb") as f:
-            # HIGHEST_PROTOCOL (4 이상)을 사용해야 4GB 이상의 대용량 객체 처리가 가능하고 속도가 빠름
+            # HIGHEST_PROTOCOL: 4GB 이상의 대용량 객체 처리에 유용
             pickle.dump(graph, f, protocol=pickle.HIGHEST_PROTOCOL)
 
         return True
 
-# Graph Traverse
-def find_entry(lgraph: LILaCGraph, subquery_embeddings: np.array, beam_size: int) -> tp.List[int]:
-    assert subquery_embeddings.ndim == 2
-    sim_matrix = subquery_embeddings @ lgraph.comp_embedding_map.T # (Q, D) @ (D, M) -> (Q, M)
-
-    comp_scores = sim_matrix.max(axis=0)
-
-    # top-k
-    if beam_size >= len(comp_scores):
-        return np.argsort(-comp_scores).tolist()
-
-    topk = np.argpartition(-comp_scores, beam_size)[:beam_size]
-    topk = topk[np.argsort(-comp_scores[topk])]
-
-    return topk.tolist()
-
-def one_hop(lgraph: LILaCGraph, subquery_embeddings: np.array, beam: tp.List[int], top_k: int = 5) -> tp.List[int]:
-    if not beam:
-        print("Warning: Input beam is empty!")
-        return []
-
-    candidates = {}
-    
-    # 1. 현재 beam에 있는 부모들의 점수 계산
-    parent_scores = {}
-    for node in beam:
-        try:
-            start, end = lgraph.subcomp_range_map[node]
-            sim = lgraph.subcomp_embeddings_dump[start:end] @ subquery_embeddings.T
-            parent_scores[node] = np.sum(np.max(sim, axis=0))
-        except (KeyError, IndexError):
-            continue
-
-    # 2. 인접 노드 탐색 (lgraph.edge가 리스트인 경우)
-    for parent in beam:
-        p_score = parent_scores.get(parent, 0)
+class LILaCBeam:
+    def __init__(self, lgraph: LILaCGraph, subquery_embeddings: np.array, beam_size: int = 5) -> None:
+        assert subquery_embeddings.ndim == 2
         
-        # 리스트 범위 체크 및 해당 노드의 자식 노드 순회
-        if parent < len(lgraph.edge):
-            neighbors = lgraph.edge[parent] # 리스트이므로 인덱스로 접근
-            
-            for neighbor in neighbors:
-                if neighbor not in candidates:
-                    try:
-                        start_n, end_n = lgraph.subcomp_range_map[neighbor]
-                        n_sim = lgraph.subcomp_embeddings_dump[start_n:end_n] @ subquery_embeddings.T
-                        n_score = np.sum(np.max(n_sim, axis=0))
-                        
-                        candidates[neighbor] = p_score + n_score
-                    except (KeyError, IndexError):
-                        continue
+        self.subquery_embeddings: np.array = subquery_embeddings
+        self.beam_size = beam_size
+        self.lilac_graph = lgraph
+        self.beam: tp.List[tp.Tuple[int, int]] = []
 
-    if not candidates:
-        print("No neighbors found from current beam.")
-        return []
+    # Graph Traverse
+    def find_entry(self) -> bool:
+        sim_matrix = self.subquery_embeddings @ self.lilac_graph.comp_embedding_map.T # (Q, D) @ (D, M) -> (Q, M)
 
-    # 3. 상위 결과 추출
-    sorted_nodes = sorted(candidates.items(), key=lambda x: x[1], reverse=True)
-    return [node for node, score in sorted_nodes[:top_k]]
+        comp_scores = sim_matrix.max(axis=0)
 
-def final_edge(lgraph: LILaCGraph, subquery_embeddings: np.array, beam: tp.List[int]) -> tp.Tuple[int, int]:
-    best_overall_score = -float('inf')
-    best_parent_child_pair = (-1, -1) # (parent_beam_id, child_edge_id)
+        # top beam size
+        beam_entry = []
+        if self.beam_size >= len(comp_scores):
+            beam_entry = np.argsort(-comp_scores).tolist()
+        else:
+            topk = np.argpartition(-comp_scores, self.beam_size)[:self.beam_size]
+            topk = topk[np.argsort(-comp_scores[topk])]
+            beam_entry = topk.tolist()
+        self.beam = [(cand, cand) for cand in beam_entry]
+        return True
 
-    for beam_item in beam:
-        # 현재 노드 점수 계산
-        start_p, end_p = lgraph.subcomp_range_map[beam_item]
-        parent_sim = lgraph.subcomp_embeddings_dump[start_p:end_p] @ subquery_embeddings.T
-        parent_score = np.sum(np.max(parent_sim, axis=0))
+    def calculate_score(self, comp1, comp2=None):
+        start1, end1 = self.lilac_graph.subcomp_range_map[comp1]
+        sim1 = self.subquery_embeddings @ self.lilac_graph.subcomp_embeddings_dump[start1:end1].T # (Q, D) @ (D, M)
+        if comp2:
+            start2, end2 = self.lilac_graph.subcomp_range_map[comp2]
+            sim2 = self.subquery_embeddings @ self.lilac_graph.subcomp_embeddings_dump[start2:end2].T # (Q, D) @ (D, M)
+            return np.sum(np.max(np.concatenate((sim1, sim2), axis=1), axis=1))
+        else:
+            return np.sum(np.max(sim1, axis=1))
+
+    def one_hop(self) -> bool:
+        if not self.beam:
+            return False
+
+        candidate_comps = set()
+        for beam_elem in self.beam:
+            candidate_comps.add(beam_elem[0])
+            candidate_comps.add(beam_elem[1])
+
+        prev_beam_nodes = set(c for edge in self.beam for c in edge)
+        candidate_edges = dict() # (comp1, comp2) -> score dict. (comp1 > comp2)        
+        for comp in candidate_comps:
+            neighbor_comps = self.lilac_graph.edge[comp]
+            if not neighbor_comps:
+                if (comp, comp) not in candidate_edges:
+                    candidate_edges[(comp, comp)] = self.calculate_score(comp)
+                continue
+                
+            for neighbor_comp in neighbor_comps:
+                c1, c2 = (comp, neighbor_comp) if comp > neighbor_comp else (neighbor_comp, comp)
+                if (c1, c2) not in candidate_edges:
+                    candidate_edges[(c1, c2)] = self.calculate_score(c1, c2)
+
+        # 부모와 자식을 통틀어 가장 점수가 높은 beam_size개 edge 추출
+        sorted_nodes = sorted(candidate_edges.items(), key=lambda x: x[1], reverse=True)
+        self.beam = [node for node, score in sorted_nodes[:self.beam_size]]
+        curr_beam_nodes = set(c for edge in self.beam for c in edge)
+        return prev_beam_nodes != curr_beam_nodes
+
+    def top_comp_ids(self, top_k: int) -> tp.List[int]:
+        if not self.beam:
+            raise IndexError("Beam is empty. Run find_entry or one_hop first.")
         
-        # 연결된 노드 중 최적 찾기
-        for edge in lgraph.edge[beam_item]:
-            start_c, end_c = lgraph.subcomp_range_map[edge]
-            child_embs = lgraph.subcomp_embeddings_dump[start_c:end_c]
-            
-            # 자식 노드 점수 계산
-            child_sim = child_embs @ subquery_embeddings.T
-            child_score = np.sum(np.max(child_sim, axis=0))
-            
-            total_score = parent_score + child_score
-            
-            # 전체 최고점 업데이트
-            if total_score > best_overall_score:
-                best_overall_score = total_score
-                best_parent_child_pair = (beam_item, edge)
-
-    i1, i2 = best_parent_child_pair
+        all_nodes = [c for edge in self.beam for c in edge]
+        unique_nodes = list(dict.fromkeys(all_nodes))
+        return unique_nodes[:top_k]
     
-    return lgraph.comp_map[i1], lgraph.comp_map[i2]
+    def top_comps(self, top_k: int) -> tp.List[dict]:
+        result_comps = []
+        unique_nodes = self.top_comp_ids(top_k)
+        for unique_node in unique_nodes:
+            result_comps.append(self.lilac_graph.comp_map[unique_node])
+        return result_comps
+
+    def top_doc_titles(self, top_k: int) -> tp.List[dict]:
+        result_docs = []
+        unique_nodes = self.top_comp_ids(top_k)
+        for unique_node in unique_nodes:
+            result_docs.append(self.lilac_graph.comp_doc_map[unique_node])
+        return result_docs
 
 if __name__ == "__main__":
     LDOC_FOLDER = "/dataset/process/mmqa/"
     GRAPH_FILE_PATH = "wiki.lgraph"
     
-    LILaCGraph.make_graph(LDOC_FOLDER, GRAPH_FILE_PATH)
+    # LILaCGraph.make_graph(LDOC_FOLDER, GRAPH_FILE_PATH)
     lilac_graph = LILaCGraph(GRAPH_FILE_PATH)
     lilac_graph.load()
-    # print(sum([len(ii) for ii in lilac_graph.edge]))
+    print(sum([len(ii) for ii in lilac_graph.edge]))

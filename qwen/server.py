@@ -31,7 +31,7 @@ app = FastAPI(
 class SinglePromptRequest(BaseModel):
     text: str
     img_paths: tp.List[str] = Field(default_factory=list)
-    max_tokens: int = Field(default=512, ge=1, le=1024)
+    max_tokens: int = Field(default=512, ge=1, le=4096)
 
 class SinglePromptResponse(BaseModel):
     response: str
@@ -39,7 +39,7 @@ class SinglePromptResponse(BaseModel):
 class BatchPromptRequest(BaseModel):
     prompts: tp.List[str] = Field(default_factory=list)
     img_paths: tp.List[tp.List] = Field(default_factory=list)
-    max_tokens: int = Field(default=512, ge=1, le=1024)
+    max_tokens: int = Field(default=512, ge=1, le=4096)
 
 class BatchPromptResponse(BaseModel):
     response: tp.List[str]

@@ -8,7 +8,7 @@ import cairosvg
 import torch
 from transformers import AutoModel
 
-from utils import GenerationInput
+from utils import *
 
 def load_svg(svg_path):
     png_data = cairosvg.svg2png(url=svg_path)
@@ -45,6 +45,28 @@ class MMEmbed:
         outputs = self.model.encode(
             [item],
             is_query=False,
+            max_length=1024,
+        )
+
+        return outputs["hidden_states"].cpu()
+    
+    @torch.inference_mode()
+    def query_embedding(self, query_gen_input: QueryGenerationInput) -> torch.Tensor:
+        item = {}
+        if query_gen_input.text:
+            item["txt"] = query_gen_input.text
+        if query_gen_input.img_path:
+            if query_gen_input.img_path.lower().endswith('.svg'):
+                loaded_svg_img = load_svg(query_gen_input.img_path)
+                if loaded_svg_img:
+                    item["img"] = loaded_svg_img.convert("RGB")
+            else:
+                item["img"] = Image.open(query_gen_input.img_path).convert("RGB")
+        
+        outputs = self.model.encode(
+            [item],
+            is_query=True,
+            instruction=query_gen_input.instruction,
             max_length=1024,
         )
 

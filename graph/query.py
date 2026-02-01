@@ -3,7 +3,11 @@ from utils import *
 def get_subembeddings(text, img_path="") -> np.array:
     query = subquery_divide_query(text)
     subqueries = get_llm_response("", query).replace("\n","").split(";")
-    embeddings = get_batch_embedding([EmbeddingRequestData(subquery, img_path) for subquery in subqueries])
+    embeddings = []
+    for subquery in subqueries:
+        modality = get_llm_response("", subquery_modality_query(subquery))
+        result_embedding = get_query_embedding(modality, subquery, img_path)
+        embeddings.append(result_embedding)
     return np.stack(embeddings)
 
 
@@ -46,3 +50,29 @@ Output format: Return only the modality label on a single line – exactly text,
 Subquery: {subquery}
 Output: """
 
+def llm_question_query(question: str, img_folder: str, doc_list: list[str], comp_list: list[dict]) -> tp.Tuple[str, tp.List[str]]:
+    retrieved_comp_list = []
+    img_paths = []
+    for doc_title, comp in zip(doc_list, comp_list):
+        if comp["type"] == "paragraph":
+            retrieved_comp_list.append(f"[Passage] Document title: {doc_title} {comp['paragraph']}")
+        elif comp["type"] == "table":
+            table_text = " | ".join([" | ".join(row) for row in comp["table"]])
+            retrieved_comp_list.append(f"[Table] Document title: {doc_title} {table_text}")
+        elif comp["type"] == "image":
+            img_paths.append(get_clean_imagepath(img_folder, comp["src"]))
+    
+    retrieved_comp_text = "\n".join(retrieved_comp_list)
+    
+    return f"""Instruction: Using the f_answers() API, return a list of answers to the question based on retrieved webpage components. A retrieved component can be a passage, a table, or an image. Strictly follow the format of the example below and keep the answer short. For yes/no questions, respond only with f_answers(["yes"]) or f_answers(["no"]).
+
+Example:
+[Passage] Document title: South Asia The current territories of Afghanistan, Bangladesh, Bhutan, Maldives, Nepal, India, Pakistan, and Sri Lanka form South Asia. The South Asian Association for Regional Cooperation (SAARC) is an economic cooperation organisation established in 1985 that includes all eight nations comprising South Asia.
+[Passage] Document title: UK Joint Expeditionary Force The UK Joint Expeditionary Force (JEF) is a United Kingdom-led expeditionary force which may include Denmark, Finland, Estonia, Latvia, Lithuania, the Netherlands, Sweden, and Norway. It is distinct from the Franco-British Combined Joint Expeditionary Force.
+[Table] Document title: Lithuanian Armed Forces — Current operations Deployment | Organization | Operation | Personnel Somalia | EU | Operation Atalanta | 15 Mali | EU | EUTM Mali | 2 Afghanistan | NATO | Operation Resolute Support | 29 Libya | EU | EU Navfor Med | 3 Mali | UN | MINUSMA | 39 Iraq | CJTF | Operation Inherent Resolve | 6 Central African Republic | EU | EUFOR RCA | 1 Kosovo | NATO | KFOR | 1 Ukraine | — | Training mission | 40
+Question: Among the Lithuanian Armed Forces’ current operations, which deployment involves fewer personnel: Kosovo, or the deployment in the nation that, along with six others, constitutes the sub-continent of South Asia? Answer: The South Asia passage shows Afghanistan is part of that region. The table lists 29 personnel in Afghanistan and only 1 in Kosovo, so f_answers(["Kosovo"]).
+
+Using the images and texts given, answer the question below in a single word or phrase.
+{retrieved_comp_text}
+Question: {question}
+Answer: """, img_paths

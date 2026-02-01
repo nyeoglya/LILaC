@@ -6,7 +6,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
-from utils import GenerationInput
+from utils import *
 
 model = None
 
@@ -27,6 +27,11 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="MM-Embed Inference Server", lifespan=lifespan)
 
 class EmbeddingRequest(BaseModel):
+    text: str = ""
+    img_path: str = ""
+
+class QueryEmbeddingRequest(BaseModel):
+    instruction: str = ""
     text: str = ""
     img_path: str = ""
 
@@ -56,6 +61,26 @@ async def embed(request: EmbeddingRequest):
     except Exception as e:
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/embed/query", response_model=EmbeddingResponse)
+async def embed(request: QueryEmbeddingRequest):
+    if model is None:
+        raise HTTPException(status_code=503, detail="Model not initialized")
+
+    query_gen_input = QueryGenerationInput(
+        instruction=request.instruction,
+        text=request.text,
+        img_path=request.img_path,
+    )
+
+    try:
+        emb = model.query_embedding(query_gen_input)
+        vec = emb.squeeze(0).tolist()
+        return EmbeddingResponse(embedding=vec)
+    except Exception as e:
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 @app.post("/embed/batch", response_model=BatchEmbeddingResponse)
 async def embed_batch(request: BatchEmbeddingRequest):

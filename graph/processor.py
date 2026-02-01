@@ -3,7 +3,6 @@ import re
 import json
 import pickle
 import typing as tp
-from urllib.parse import unquote
 
 import numpy as np
 
@@ -124,7 +123,7 @@ class LILaCDocument:
         for table_row in table_data:
             temp_list = []
             for table_elem in table_row:
-                elem_img_lists = [self.get_clean_imagepath(item) for item in re.findall(pattern, table_elem)]
+                elem_img_lists = [get_clean_imagepath(self.img_folder, item) for item in re.findall(pattern, table_elem)]
                 image_path_list.extend(elem_img_lists)
                 text = re.sub(pattern, '', table_elem).strip()
                 if text:
@@ -170,24 +169,11 @@ class LILaCDocument:
         result_comp.embedding = np.mean(np.stack(subcomp_embeddings, axis=0), axis=0)
         
         return result_comp
-    
-    def get_clean_imagepath(self, image_str):
-        invalid_chars = '<>:"/\\|?*'
-        clean_name = unquote(image_str)
-        if "File:" in clean_name:
-            clean_name = clean_name.split("File:")[1]
-        elif "https://" in clean_name:
-            clean_name = clean_name.split("/")[-1]
-        for char in invalid_chars:
-            clean_name = clean_name.replace(char, '')
-
-        full_path = os.path.join(self.img_folder, clean_name)
-        return full_path
-    
+        
     def process_image_component(self, component) -> ProcessedComponent:
         result_comp = ProcessedComponent(component)
         
-        full_path = self.get_clean_imagepath(component["src"])
+        full_path = get_clean_imagepath(self.img_folder, component["src"])
         
         if not os.path.exists(full_path):
             print(f"Error: No {full_path} exists")
@@ -285,10 +271,6 @@ class BatchDataProcessor:
         return True
 
 if __name__ == "__main__":
-    JSON_FOLDER = "/dataset/crawl/mmqa_html/"
-    IMG_FOLDER = "/dataset/crawl/mmqa_image/"
-    LDOC_FOLDER = "/dataset/process/mmqa/"
-    
     batch_data_processor = BatchDataProcessor(JSON_FOLDER, IMG_FOLDER, LDOC_FOLDER)
     test_segmenter = pysbd.Segmenter(language="en", clean=False,)
     batch_data_processor.load_json()
