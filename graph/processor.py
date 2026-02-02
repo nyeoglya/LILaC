@@ -273,6 +273,22 @@ class BatchDataProcessor:
 if __name__ == "__main__":
     batch_data_processor = BatchDataProcessor(JSON_FOLDER, IMG_FOLDER, LDOC_FOLDER)
     test_segmenter = pysbd.Segmenter(language="en", clean=False,)
-    batch_data_processor.load_json()
-    batch_data_processor.batch_run()
-    batch_data_processor.edge_remapping()
+    # batch_data_processor.load_json()
+    # batch_data_processor.batch_run()
+    # batch_data_processor.edge_remapping()
+    
+    lilac_doc: LILaCDocument = LILaCDocument.load('/dataset/process/mmqa/Tell_Me_That_You_Love_Me,_Junie_Moon.ldoc')
+    embeds = lilac_doc.processed_components[0].subcomp_embeddings
+    
+    from query import get_subembeddings
+    subembeddings = get_subembeddings("Which film did Ben Piazza appear in first: \"Nightwing\" or the movie that shows half of a woman's face on the poster?")
+    
+    emmm = get_embedding(EmbeddingRequestData("Original Poster by Saul Bass", "/dataset/crawl/mmqa_image/Tell_Me_That_You_Love_Me,_Junie_Moon_poster.jpg"))
+    
+    sim1 = subembeddings @ np.array(embeds).T # (Q, D) @ (D, M)
+    print(sim1)
+    print(np.argmax(sim1, axis=1))
+    print(subembeddings @ emmm.T)
+    print(np.max(sim1, axis=1))
+    
+    print(lilac_doc.processed_components[0].component)

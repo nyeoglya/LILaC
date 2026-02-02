@@ -9,6 +9,7 @@ import numpy as np
 JSON_FOLDER = "/dataset/crawl/mmqa_html/"
 IMG_FOLDER = "/dataset/crawl/mmqa_image/"
 LDOC_FOLDER = "/dataset/process/mmqa/"
+FINAL_RESULT_FILENAME = "lilac_query_answers.json"
 
 MMEMBED_SERVER_URL = "http://lilac-mmembed:8002"
 QWEN_SERVER_URL = "http://lilac-qwen:8003"

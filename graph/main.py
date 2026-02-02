@@ -4,7 +4,10 @@ import time
 from lgraph import *
 from processor import *
 from query import *
+from eval.mmqa import *
+from utils import FINAL_RESULT_FILENAME
 
+from dataclasses import asdict
 from contextlib import contextmanager
 
 class TimeTracker:
@@ -24,7 +27,7 @@ def code_timer(tracker, before, label):
         print(f"{label} ({delta:.3f}s passed)")
 
 # end-to-end pipeline (with given datasets)
-def main(query_list: list[str]):
+def process_query_list(query_list: list[str]):
     BEAM_SIZE = 3
     TOP_K = 3
     MAX_HOP = 10
@@ -40,6 +43,8 @@ def main(query_list: list[str]):
     result_docs_list: tp.List[tp.List[str]] = []
     elapsed_time_list: tp.List[float] = []
     for query in query_list:
+        tracker.elapsed_time = 0.0
+        
         print(f"\nProcessing the query: {query}")
         with code_timer(tracker, "+ Get subembeddings... ", "Complete"):
             subembeddings = get_subembeddings(query)
@@ -70,20 +75,35 @@ def main(query_list: list[str]):
         elapsed_time_list.append(tracker.elapsed_time)
     return result_comps_list, result_docs_list, elapsed_time_list
 
-if __name__ == "__main__":
-    query_list = [
-        "Which film did Ben Piazza play the role of Mr. Simms?"
-    ]
-    result_comps_list, result_docs_list, elapsed_time_list = main(query_list)
-    print("\n", "-"*20, "Total Result", "-"*20, "\n")
-    print(f"Mean Elapsed Time: {sum(elapsed_time_list) / len(elapsed_time_list):.3f}s\n")
-    for docs, query in zip(result_docs_list, query_list):
-        print(f"Query: {query}\n=> Result Docs List: {docs}")
-    
+def main(query_list: list[str]):
+    result_comps_list, result_docs_list, elapsed_time_list = process_query_list(query_list)
+    print("\n", "+ Total Result\n")
+    print(f"Mean Elapsed Time: {sum(elapsed_time_list) / len(elapsed_time_list):.3f}s")
+    print(f"Total Elapsed Time: {sum(elapsed_time_list):.3f}s\n\n")
+    llm_response_list = []
     for ind in range(len(query_list)):
+        print(f"Query: {query_list[ind]}\n=> Result Docs List: {list(set(result_docs_list[ind]))}")
         final_query, img_paths = llm_question_query(query_list[ind], IMG_FOLDER, result_docs_list[ind], result_comps_list[ind])
-        print(final_query)
         llm_response = get_llm_response("", final_query, img_paths)
-        print(llm_response)
+        llm_response_list.append(llm_response)
+        print(f"=> LLM Augmented Answer: {llm_response}\n")
+    return llm_response_list, result_comps_list
+
+if __name__ == "__main__":
+    query_answer_list = mmqa_eval_load(
+        "/dataset/mmqa/MMQA_dev.jsonl",
+        "/dataset/mmqa/MMQA_texts.jsonl",
+        "/dataset/mmqa/MMQA_images.jsonl",
+        "/dataset/mmqa/MMQA_tables.jsonl",
+    )
     
-    print("\n", result_comps_list)
+    query_list = [query_answer.question for query_answer in query_answer_list]
+    llm_response, result_comps_list = main(query_list)
+    for ind in range(len(query_answer_list)):
+        query_answer_list[ind].llm_answer = llm_response[ind]
+        query_answer_list[ind].result_comps = result_comps_list[ind]
+    
+    users_list_of_dict = [asdict(user) for user in query_answer_list]
+    with open(FINAL_RESULT_FILENAME, "w", encoding="utf-8") as f:
+        json.dump(users_list_of_dict, f, indent=4, ensure_ascii=False)
+    print(f"+ Save result to {FINAL_RESULT_FILENAME}")
