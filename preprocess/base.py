@@ -1,46 +1,42 @@
 import typing as tp
 
+from dataclasses import dataclass, field, asdict
+import typing as tp
+from bs4 import Tag
+
+@dataclass
 class ComponentData:
-    def __init__(self, edge: set=set()) -> None:
-        self.heading_path = []
-        self.edge = list(edge)
-    
-    def to_json(self) -> tp.Dict:
-        return {"heading_path": self.heading_path, "edge": self.edge}
+    heading_path: tp.List[str] = field(default_factory=list)
+    edge: tp.List[str] = field(default_factory=list)
 
-class ImageComponent(ComponentData):
-    def __init__(self, src: str, caption: str, edge: set=set()) -> None:
-        super().__init__(edge)
-        self.src = src
-        self.caption = caption
-    
-    def to_json(self) -> tp.Dict:
-        return {"type": "image", 'src': self.src, 'caption': self.caption, "heading_path": self.heading_path, "edge": self.edge}
-    
-    def __str__(self) -> str:
-        return f"src: {self.src}, caption: {self.caption}"
+    def __post_init__(self):
+        if isinstance(self.edge, set):
+            self.edge = list(self.edge)
 
+    def to_json(self) -> tp.Dict:
+        return asdict(self)
+
+dataclass
 class ParagraphComponent(ComponentData):
-    def __init__(self, paragraph: str, edge: set=set()) -> None:
-        super().__init__(edge)
-        self.paragraph: str = paragraph
-    
-    def to_json(self) -> tp.Dict:
-        return {"type": "paragraph", "paragraph": self.paragraph, "heading_path": self.heading_path, "edge": self.edge}
-    
-    def __str__(self) -> str:
-        return f"paragraph: {self.paragraph}"
+    paragraph: str = ""
 
-class TableComponent(ComponentData):
-    def __init__(self, table: list, edge: set=set()) -> None:
-        super().__init__(edge)
-        self.table = table
-    
     def to_json(self) -> tp.Dict:
-        return {"type": "table", "table": self.table, "heading_path": self.heading_path, "edge": self.edge}
-    
-    def __str__(self) -> str:
-        return f"table: {self.table}"
+        return {"type": "paragraph", **asdict(self)}
+
+@dataclass
+class ImageComponent(ComponentData):
+    src: str = ""
+    caption: str = ""
+
+    def to_json(self) -> tp.Dict:
+        return {"type": "image", **asdict(self)}
+
+@dataclass
+class TableComponent(ComponentData):
+    table: tp.List = field(default_factory=list)
+
+    def to_json(self) -> tp.Dict:
+        return {"type": "table", **asdict(self)}
 
 class BasePage:
     def __init__(self):
@@ -53,11 +49,11 @@ class BasePage:
     def run(self) -> bool:
         return False
     
-    def parse_figure(self, data) -> tp.Union[ImageComponent, None]:
-        return ImageComponent("src", "caption")
+    def parse_figure(self, data: Tag) -> tp.Union[ImageComponent, None]:
+        return None
     
-    def parse_paragraph(self, data: str) -> tp.Union[ParagraphComponent, None]:
-        return ParagraphComponent("paragraph")
+    def parse_paragraph(self, data: Tag) -> tp.Union[ParagraphComponent, None]:
+        return None
     
-    def parse_table(self, data) -> tp.Union[TableComponent, None]:
-        return TableComponent(data)
+    def parse_table(self, data: Tag) -> tp.Union[TableComponent, None]:
+        return None

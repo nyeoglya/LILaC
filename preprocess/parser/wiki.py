@@ -78,7 +78,6 @@ class WikiPage(BasePage):
         for section in self.source:
             elements = section.find_all(recursive=False)
             clean_elements = self.flatten_elements(elements)
-            # print([elem.name for elem in clean_elements])
             
             for data in clean_elements:
                 data_tag = data.name

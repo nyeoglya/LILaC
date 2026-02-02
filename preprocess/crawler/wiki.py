@@ -14,10 +14,10 @@ import requests
 from base import *
 
 class WikiBatchCrawler:
-    def __init__(self, folder_path="crawled_html"):
+    def __init__(self, folder_path: str, email: str = "abc@example.com") -> None:
         self.base_url = f"https://en.wikipedia.org/api/rest_v1/page/html/"
         self.headers = {
-            "User-Agent": "LILaCBulkScraper/1.0 (abc@example.com)"
+            "User-Agent": f"LILaCBulkScraper/1.0 ({email})"
         }
         
         if not os.path.exists(folder_path):
@@ -32,7 +32,7 @@ class WikiBatchCrawler:
         self.max_progress = 0
         self.lock = threading.Lock()
 
-    def get_filepath(self, page_name):
+    def get_filepath(self, page_name: str) -> str:
         safe_filename = "".join([c for c in page_name if c.isalnum() or c in (' ', '_', '-')]).rstrip()
         file_path = os.path.join(self.folder_path, f"{safe_filename}.html")
         return file_path
@@ -101,12 +101,12 @@ class WikiBatchCrawler:
                 
         return results
     
-    def get_clean_wiki_titles(self, mmqa_file_path, texts_filepath, images_filepath, tables_filepath):
+    def get_clean_wiki_titles(self, mmqa_filepath: str, texts_filepath: str, images_filepath: str, tables_filepath: str) -> tp.List[str]:
         doc_ids = set()
         img_ids = set()
         tab_ids = set()
 
-        with open(mmqa_file_path, 'r', encoding='utf-8') as infile:
+        with open(mmqa_filepath, 'r', encoding='utf-8') as infile:
             for line in infile:
                 data = json.loads(line)
                 for ctx in data.get("supporting_context", []):
@@ -146,10 +146,10 @@ class WikiBatchCrawler:
 
 
 class BatchWikiImageCrawler:
-    def __init__(self, folder_path) -> None:
+    def __init__(self, folder_path: str, email: str = "abc@example.com") -> None:
         self.folder_path = folder_path
         self.headers = {
-            "User-Agent": "LilacCrawler/1.0 (Contact: hyunseong@postech.ac.kr; Research Purpose)",
+            "User-Agent": f"LilacCrawler/1.0 (Contact: {email}; Research Purpose)",
             "Accept-Encoding": "gzip, deflate"
         }
         
@@ -165,7 +165,7 @@ class BatchWikiImageCrawler:
         self.max_progress = 0
         self.lock = threading.Lock()
     
-    def fetch_and_save(self, img_data):
+    def fetch_and_save(self, img_data: tp.Tuple[str, str]) -> bool:
         filename, img_url = img_data
         file_path = os.path.join(self.folder_path, filename)
         
@@ -199,7 +199,7 @@ class BatchWikiImageCrawler:
             print(f"Error downloading {img_url}: {e}")
             return False
     
-    def run_batch(self, img_data_list, max_workers=1):
+    def run_batch(self, img_data_list: tp.Iterable[tp.Tuple[str,str]], max_workers: int = 1) -> None:
         img_data_list = list(img_data_list)
         self.max_progress = len(img_data_list)
         self.progress = 0
@@ -237,10 +237,8 @@ class BatchWikiImageCrawler:
                 print(f"Failed image list saved to: {os.path.abspath(failed_file)}")
             except Exception as e:
                 print(f"Error saving failed image list: {e}")
-        
-        return results
     
-    def get_clean_filename(self, url):
+    def get_clean_filename(self, url: str) -> str:
         raw_filename = url.split('/')[-1]
         decoded_name = urllib.parse.unquote(raw_filename)
         invalid_chars = '<>:"/\|?*'
@@ -265,7 +263,7 @@ class BatchWikiImageCrawler:
                             links.add(url)
         return links
     
-    def get_clean_imglinks(self, filepath_list):
+    def get_clean_imglinks(self, filepath_list: tp.List[str]) -> tp.List[tp.Tuple[str, str]]:
         links = set()
         result_links_pair = set()
         process_count = 0

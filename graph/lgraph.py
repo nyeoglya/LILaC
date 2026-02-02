@@ -25,10 +25,9 @@ class LILaCGraph:
         
         try:
             with open(self.filepath, "rb") as f:
-                # 저장된 객체를 불러와서 현재 인스턴스의 속성들에 덮어씌움
                 data = pickle.load(f)
                 self.comp_map = data.comp_map
-                self.comp_doc_map = data.comp_doc_map # 필드 추가
+                self.comp_doc_map = data.comp_doc_map
                 self.comp_embedding_map = data.comp_embedding_map
                 self.subcomp_embeddings_dump = data.subcomp_embeddings_dump
                 self.subcomp_range_map = data.subcomp_range_map
@@ -47,7 +46,6 @@ class LILaCGraph:
         if not os.path.exists(remapped_ldoc_path):
             return False
 
-        # 문서 로드 (리스트 컴프리헨션으로 속도 향상)
         fnames = [f for f in os.listdir(remapped_ldoc_path) if f.endswith(".ldoc.remapped")]
         ldocs = [LILaCDocument.load(os.path.join(remapped_ldoc_path, f)) for f in fnames]
         ldocs = [doc for doc in ldocs if doc is not None]
@@ -67,12 +65,11 @@ class LILaCGraph:
         graph.edge = [None] * N
         graph.subcomp_range_map = np.zeros((N, 2), dtype=np.int64)
 
-        # 임베딩 차원 파악 및 총 서브 컴포넌트 개수 계산 (Pre-allocation 준비)
+        # 임베딩 차원 파악 및 총 서브 컴포넌트 개수 계산
         sample_emb = all_comps[0].embedding
         emb_dim = sample_emb.shape[0]
         total_sub_count = sum(len(c.subcomp_embeddings) for c in all_comps)
 
-        # 미리 Numpy 배열을 할당하여 np.stack/extend의 오버헤드 제거
         graph.comp_embedding_map = np.empty((N, emb_dim), dtype=np.float32)
         graph.subcomp_embeddings_dump = np.empty((total_sub_count, emb_dim), dtype=np.float32)
 
@@ -81,7 +78,6 @@ class LILaCGraph:
 
         # 데이터 채우기
         for ldoc in ldocs:
-            # 현재 문서에 속한 모든 컴포넌트의 ID 목록 추출
             doc_comp_ids = [comp.id for comp in ldoc.processed_components]
             
             for comp in ldoc.processed_components:
@@ -90,7 +86,7 @@ class LILaCGraph:
                 graph.comp_map[cid] = comp.component
                 graph.comp_doc_map[cid] = ldoc.doc_title
                 
-                # 엣지 생성 로직
+                # edge 생성
                 edges = set(comp.edge) if comp.edge else set()
                 edges.add(cid)
                 edges.update(doc_comp_ids)
@@ -110,8 +106,7 @@ class LILaCGraph:
         # Pickle 저장 최적화
         print(f"Saving to {filepath}...")
         with open(filepath, "wb") as f:
-            # HIGHEST_PROTOCOL: 4GB 이상의 대용량 객체 처리에 유용
-            pickle.dump(graph, f, protocol=pickle.HIGHEST_PROTOCOL)
+            pickle.dump(graph, f, protocol=pickle.HIGHEST_PROTOCOL) # HIGHEST_PROTOCOL: 4GB 이상의 대용량 객체 처리에 유용
 
         return True
 
