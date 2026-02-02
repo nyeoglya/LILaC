@@ -7,6 +7,10 @@ crawler/crawled_*
 crawler/MMQA_dev.jsonl
 *.lgraph
 
+# process file
+lilac_*.json
+lilac_*.jsonl
+
 # log files
 *.log
 
