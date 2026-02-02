@@ -29,7 +29,7 @@ def code_timer(tracker, before, label):
 
 # end-to-end pipeline (with given datasets)
 def process_query_list(query_list: list[str], temp_filepath: str):
-    BEAM_SIZE = 3
+    BEAM_SIZE = 30
     TOP_K = 3
     MAX_HOP = 10
     GRAPH_FILE_PATH = "wiki.lgraph"
@@ -48,10 +48,12 @@ def process_query_list(query_list: list[str], temp_filepath: str):
             tracker.elapsed_time = 0.0
             
             print(f"\nProcessing the query: {query}")
+            with code_timer(tracker, "+ Get embedding... ", "Complete"):
+                embedding = get_embedding(EmbeddingRequestData(query))
             with code_timer(tracker, "+ Get subembeddings... ", "Complete"):
                 subembeddings = get_subembeddings(query)
             
-            beam = LILaCBeam(lilac_graph, subembeddings, BEAM_SIZE)
+            beam = LILaCBeam(lilac_graph, embedding, subembeddings, BEAM_SIZE)
             
             with code_timer(tracker, "+ Finding entry items from the graph... ", "Complete"):
                 beam.find_entry()

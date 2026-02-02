@@ -111,9 +111,11 @@ class LILaCGraph:
         return True
 
 class LILaCBeam:
-    def __init__(self, lgraph: LILaCGraph, subquery_embeddings: np.array, beam_size: int = 5) -> None:
+    def __init__(self, lgraph: LILaCGraph, query_embedding: np.array, subquery_embeddings: np.array, beam_size: int = 5) -> None:
         assert subquery_embeddings.ndim == 2
+        assert query_embedding.ndim == 1
         
+        self.query_embedding: np.array = query_embedding
         self.subquery_embeddings: np.array = subquery_embeddings
         self.beam_size = beam_size
         self.lilac_graph = lgraph
@@ -121,9 +123,7 @@ class LILaCBeam:
 
     # Graph Traverse
     def find_entry(self) -> bool:
-        sim_matrix = self.subquery_embeddings @ self.lilac_graph.comp_embedding_map.T # (Q, D) @ (D, M) -> (Q, M)
-
-        comp_scores = sim_matrix.max(axis=0)
+        comp_scores = self.query_embedding @ self.lilac_graph.comp_embedding_map.T # (1, D) @ (D, M) -> (1, M)
 
         # top beam size
         beam_entry = []
@@ -166,8 +166,20 @@ class LILaCBeam:
                 
             for neighbor_comp in neighbor_comps:
                 c1, c2 = (comp, neighbor_comp) if comp > neighbor_comp else (neighbor_comp, comp)
-                if (c1, c2) not in candidate_edges:
-                    candidate_edges[(c1, c2)] = self.calculate_score(c1, c2)
+                if (c1, c2) in candidate_edges:
+                    continue
+
+                score_edge = self.calculate_score(c1, c2)
+                score_c1 = self.calculate_score(c1)
+                score_c2 = self.calculate_score(c2)
+
+                # one sided match
+                if score_edge <= max(score_c1, score_c2) + 1e-5:
+                    winner = c1 if score_c1 >= score_c2 else c2
+                    if (winner, winner) not in candidate_edges:
+                        candidate_edges[(winner, winner)] = max(score_c1, score_c2)
+                else:
+                    candidate_edges[(c1, c2)] = score_edge
 
         # 부모와 자식을 통틀어 가장 점수가 높은 beam_size개 edge 추출
         sorted_nodes = sorted(candidate_edges.items(), key=lambda x: x[1], reverse=True)
