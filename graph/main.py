@@ -6,7 +6,7 @@ import json
 from lgraph import LILaCGraph, LILaCBeam
 from query import get_subembeddings, llm_question_query
 from eval.mmqa import mmqa_load
-from eval.utils import mmqa_eval, QueryAnswer
+from eval.utils import query_eval, QueryAnswer
 from utils import (
     get_embedding, get_llm_response,
     EmbeddingRequestData,
