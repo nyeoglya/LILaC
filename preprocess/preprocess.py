@@ -1,7 +1,7 @@
 from pathlib import Path
 
-from crawler.wiki import *
-from parser.wiki import *
+from parser.wiki import WikiPage
+from crawler.wiki import WikiBatchCrawler, BatchWikiImageCrawler
 
 CRAWL_HTML_FOLDER = "/dataset/crawl/mmqa_html/"
 CRAWL_IMAGE_FOLDER = "/dataset/crawl/mmqa_image/"

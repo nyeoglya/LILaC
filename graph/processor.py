@@ -6,7 +6,11 @@ import typing as tp
 
 import numpy as np
 
-from utils import *
+from utils import (
+    get_embedding, get_batch_embedding, get_clean_imagepath,
+    EmbeddingRequestData,
+    JSON_FOLDER, IMG_FOLDER, LDOC_FOLDER
+)
 import pysbd
 
 class ProcessedComponent:

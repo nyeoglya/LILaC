@@ -1,4 +1,9 @@
-from utils import *
+import numpy as np
+import typing as tp
+
+from utils import (
+    get_clean_imagepath, get_query_embedding, get_llm_response
+)
 
 def get_subembeddings(text, img_path="") -> np.array:
     query = subquery_divide_query(text)

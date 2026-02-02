@@ -6,7 +6,9 @@ import typing as tp
 import urllib.parse
 from bs4 import BeautifulSoup, Tag
 
-from base import *
+from base import (
+    ComponentData, BasePage, ParagraphComponent, ImageComponent, TableComponent
+)
 
 class WikiPage(BasePage):
     def __init__(self, title: str, filepath: str) -> None:

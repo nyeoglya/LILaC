@@ -1,6 +1,6 @@
 import os
 
-from processor import *
+from processor import LILaCDocument
 
 def global_remapping_and_verify(ldoc_folder_path, save_folder_path):
     # 모든 .ldoc 파일 목록 가져오기 및 정렬

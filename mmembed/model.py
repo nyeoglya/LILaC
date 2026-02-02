@@ -8,7 +8,7 @@ import cairosvg
 import torch
 from transformers import AutoModel
 
-from utils import *
+from utils import GenerationInput, QueryGenerationInput
 
 def load_svg(svg_path):
     png_data = cairosvg.svg2png(url=svg_path)

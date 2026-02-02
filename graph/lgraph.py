@@ -4,7 +4,7 @@ import typing as tp
 
 import numpy as np
 
-from processor import *
+from processor import LILaCDocument
 
 class LILaCGraph:
     def __init__(self, filepath: str) -> None:

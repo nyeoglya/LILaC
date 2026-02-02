@@ -11,8 +11,6 @@ from concurrent.futures import ThreadPoolExecutor
 import urllib.parse
 import requests
 
-from base import *
-
 class WikiBatchCrawler:
     def __init__(self, folder_path: str, email: str = "abc@example.com") -> None:
         self.base_url = f"https://en.wikipedia.org/api/rest_v1/page/html/"

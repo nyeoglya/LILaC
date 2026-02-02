@@ -1,7 +1,6 @@
 import typing as tp
-
 from dataclasses import dataclass, field, asdict
-import typing as tp
+
 from bs4 import Tag
 
 @dataclass

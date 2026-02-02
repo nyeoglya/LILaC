@@ -6,7 +6,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
-from utils import *
+from utils import GenerationInput, QueryGenerationInput
 
 model = None
 

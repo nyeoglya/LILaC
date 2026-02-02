@@ -1,9 +1,9 @@
-import typing as tp
 import asyncio
+import typing as tp
 import traceback
+from contextlib import asynccontextmanager
 
 import uvicorn
-from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
@@ -13,7 +13,7 @@ from utils import GenerationInput
 async def lifespan(app: FastAPI):
     try:
         from model import Qwen3_VL
-        app.state.model = Qwen3_VL(device="cuda:1")
+        app.state.model = Qwen3_VL(device="cuda:0")
     except Exception as e:
         raise RuntimeError(f"Model load failed: {e}")
 
