@@ -1,35 +1,63 @@
-from pathlib import Path
+import typing as tp
 
-from parser.wiki import WikiPage
+from utils import convert_image_to_png
+from utils_mmqa import mmqa_get_clean_wikidocs_titles
+
+from parser.wiki import WikiBatchParser
 from crawler.wiki import WikiBatchCrawler, BatchWikiImageCrawler
+# from detector import BatchObjectDetector
 
-CRAWL_HTML_FOLDER = "/dataset/crawl/mmqa_html/"
-CRAWL_IMAGE_FOLDER = "/dataset/crawl/mmqa_image/"
+MMQA_PATH: str = "/dataset/original/mmqa/"
+MMQA_CRAWL_HTML_FAILED_FILE: str = "/dataset/crawl/mmqa_html_failed.txt"
+MMQA_CRAWL_HTML_FOLDER: str = "/dataset/crawl/mmqa_html/"
+MMQA_CRAWL_IMAGE_FAILED_FILE: str = "/dataset/crawl/mmqa_image_failed.txt"
+MMQA_CRAWL_IMAGE_FOLDER: str = "/dataset/crawl/mmqa_image/"
 
-def main():
+MMQA_PARSE_FAILED_FILE: str = "/dataset/parse/mmqa_failed.txt"
+MMQA_PARSE_JSON_FOLDER: str = "/dataset/parse/mmqa_json/"
+
+MMQA_OBJECT_DETECT_FAILED_FILE: str = "/dataset/parse/mmqa_detect_failed.txt"
+MMQA_OBJECT_DETECT_INFO_FILE: str = "/dataset/parse/mmqa_image_detect.jsonl"
+
+def preprocess_main() -> None:
+    mmqa_wiki_doc_title_list: tp.List[str] = mmqa_get_clean_wikidocs_titles(MMQA_PATH)
+    mmqa_wiki_doc_title_list = sorted(mmqa_wiki_doc_title_list)
+    
     # Crawler
-    wiki_batch_crawler = WikiBatchCrawler(CRAWL_HTML_FOLDER)
-    mmqa_titles = wiki_batch_crawler.get_clean_wiki_titles("/dataset/mmqa/MMQA_dev.jsonl", "/dataset/mmqa/MMQA_texts.jsonl", "/dataset/mmqa/MMQA_images.jsonl", "/dataset/mmqa/MMQA_tables.jsonl")
-    wiki_batch_crawler.run_batch(mmqa_titles)
+    '''
+    batch_wiki_crawler: WikiBatchCrawler = WikiBatchCrawler(
+        MMQA_CRAWL_HTML_FOLDER,
+        mmqa_wiki_doc_title_list,
+        "hyunseong@postech.ac.kr"
+    )
+    batch_wiki_crawler.run_batch(MMQA_CRAWL_FAILED_FILE)
+    '''
     
     # Parser
-    i = 0
-    for mmqa_title in mmqa_titles:
-        if i%5 == 0:
-            print(f"{i}/{len(mmqa_titles)}")
-        filepath = wiki_batch_crawler.get_filepath(mmqa_title)
-        wiki_parser = WikiPage(mmqa_title, filepath)
-        wiki_parser.read_file()
-        wiki_parser.parse_lines()
-        wiki_parser.save()
-        i += 1
+    batch_wiki_parser: WikiBatchParser = WikiBatchParser(
+        MMQA_CRAWL_HTML_FOLDER,
+        MMQA_PARSE_JSON_FOLDER,
+        mmqa_wiki_doc_title_list,
+    )
+    batch_wiki_parser.run_batch(MMQA_PARSE_FAILED_FILE)
+    
+    return
     
     # Image Crawler
-    image_batch_crawler = BatchWikiImageCrawler(CRAWL_IMAGE_FOLDER)
-    path = Path(CRAWL_HTML_FOLDER)
-    html_json_files = [str(file) for file in path.glob("*.json")]
-    img_lists = image_batch_crawler.get_clean_imglinks(html_json_files)
-    image_batch_crawler.run_batch(img_lists)
+    batch_image_crawler: BatchWikiImageCrawler = BatchWikiImageCrawler(
+        MMQA_CRAWL_IMAGE_FOLDER,
+        "hyunseong@postech.ac.kr"
+    )
+    batch_image_crawler.set_clean_imglinks_from_folder(MMQA_PARSE_JSON_FOLDER)
+    batch_image_crawler.run_batch(MMQA_CRAWL_IMAGE_FAILED_FILE)
+    
+    
+    return
+    
+    # Object Detector
+    batch_object_detector = BatchObjectDetector(MMQA_CRAWL_IMAGE_FOLDER)
+    batch_object_detector.run_batch(MMQA_OBJECT_DETECT_FAILED_FILE, MMQA_OBJECT_DETECT_INFO_FILE)
+    
 
 if __name__ == "__main__":
-    main()
+    preprocess_main()

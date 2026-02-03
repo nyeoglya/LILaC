@@ -2,11 +2,12 @@ import os
 import sys
 import time
 import json
+import typing as tp
 
-from lgraph import LILaCGraph, LILaCBeam
+from lgraph import LILaCGraph, LILaCBeamV2
 from query import get_subembeddings, llm_question_query
 from eval.mmqa import mmqa_load
-from eval.utils import query_eval, QueryAnswer
+from eval.utils import query_eval
 from utils import (
     get_embedding, get_llm_response,
     EmbeddingRequestData,
@@ -39,7 +40,7 @@ def process_query_list(query_list: list[str], temp_filepath: str):
     MAX_HOP = 10
     GRAPH_FILE_PATH = "wiki.lgraph"
     
-    # 1. 기존 결과 로드 (캐싱)
+    # 기존 결과 로드 (캐싱)
     cache = {}
     if os.path.exists(temp_filepath):
         with open(temp_filepath, 'r', encoding='utf-8') as f:
@@ -81,7 +82,7 @@ def process_query_list(query_list: list[str], temp_filepath: str):
             with code_timer(tracker, "+ Get subembeddings... ", "Complete"):
                 subembeddings = get_subembeddings(query)
             
-            beam = LILaCBeam(lilac_graph, embedding, subembeddings, BEAM_SIZE)
+            beam = LILaCBeamV2(lilac_graph, embedding, subembeddings, BEAM_SIZE)
             
             with code_timer(tracker, "+ Finding entry items from the graph... ", "Complete"):
                 beam.find_entry()
@@ -106,12 +107,13 @@ def process_query_list(query_list: list[str], temp_filepath: str):
             
             # 나중에 복구할 때 필요한 정보를 모두 저장
             record = {
-                'query': query, 
+                'query': query,
                 'comp_ids': final_comp_ids,
                 'comps': comps,
                 'docs': docs,
                 'elapsed_time': tracker.elapsed_time
             }
+            
             temp_json_file.write(json.dumps(record, ensure_ascii=False) + '\n')
             temp_json_file.flush()
 
@@ -124,7 +126,7 @@ def process_query_list(query_list: list[str], temp_filepath: str):
 def main(query_list: list[str], temp_graph_filepath: str, temp_llm_filepath: str):
     query_list = sorted(query_list)
     
-    # 1. 그래프 검색 결과 (이미 process_query_list에서 캐싱 처리됨)
+    # 그래프 검색 결과 (이미 process_query_list에서 캐싱 처리됨)
     result_comps_list, result_docs_list, elapsed_time_list = process_query_list(query_list, temp_graph_filepath)
     
     print("\n", "+ Total Result\n")
@@ -169,7 +171,7 @@ def main(query_list: list[str], temp_graph_filepath: str, temp_llm_filepath: str
             try:
                 # 이 부분에 별도의 code_timer가 필요하다면 감쌀 수 있습니다.
                 llm_response = get_llm_response("", final_query, img_paths)
-            except RuntimeError as e:
+            except Exception as e:
                 print(f"!!! Error at query {ind}: {e}")
                 llm_response = "ERROR: Generation Failed"
 
@@ -201,5 +203,14 @@ if __name__ == "__main__":
         json.dump(users_list_of_dict, f, indent=4, ensure_ascii=False)
     print(f"+ Save result to {FINAL_RESULT_FILENAME}")
     
+    from query import subquery_divide_query
+    sub_query_list = [get_llm_response("", subquery_divide_query(text)).replace("\n","").split(";") for text in query_list]
+    for i in range(len(query_answer_list)):
+        print(f"Q: {query_list[i]}")
+        print(f"Subqueries: {sub_query_list[i]}") # 분해된 결과 확인
+        # print(f"Retrieved IDs: {result_comps_list[i]}") # 찾은 컴포넌트 ID
+        print(f"Actual Answer: {query_answer_list[i].answer}") # 정답지
+        print(f"LLM Answer: {llm_response[i]}") # 모델이 내뱉은 말
+        print("-" * 30)
     
-    
+    query_eval(query_answer_list)

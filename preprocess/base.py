@@ -15,7 +15,7 @@ class ComponentData:
     def to_json(self) -> tp.Dict:
         return asdict(self)
 
-dataclass
+@dataclass
 class ParagraphComponent(ComponentData):
     paragraph: str = ""
 
@@ -42,10 +42,10 @@ class BasePage:
         self.base_url = ""
         self.source = []
     
-    def save(self) -> bool:
+    def save_page(self) -> bool:
         return False
     
-    def run(self) -> bool:
+    def run_parse(self) -> bool:
         return False
     
     def parse_figure(self, data: Tag) -> tp.Union[ImageComponent, None]:

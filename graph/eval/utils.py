@@ -54,8 +54,8 @@ def query_eval(query_answer_list: tp.List[QueryAnswer]) -> float:
         else:
             extracted_list = [query_answer.llm_answer]
         
-        normalized_predictions = [normalize_answer(ans) for ans in extracted_list]
-        normalized_ground_truths = [normalize_answer(text) for text in query_answer.answer]
+        normalized_predictions = [normalize_answer(str(ans)) for ans in extracted_list]
+        normalized_ground_truths = [normalize_answer(str(ans)) for ans in query_answer.answer]
         
         is_correct = False
         for pred in normalized_predictions:
@@ -65,8 +65,8 @@ def query_eval(query_answer_list: tp.List[QueryAnswer]) -> float:
         
         if is_correct:
             score += 1
-    
-    em_score = score * 100 / total_query_len if total_query_len > 0 else 0
-    print(f"LLM Answer Exact Match {score} among {total_query_len} queries. EM Score: {em_score:.2f}")
+
+    em_score = score / total_query_len if total_query_len > 0 else 0
+    print(f"LLM Answer Exact Match {score} among {total_query_len} queries. EM Score: {em_score:.4f}")
 
     return em_score

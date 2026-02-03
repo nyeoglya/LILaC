@@ -15,9 +15,7 @@ def get_subembeddings(text, img_path="") -> np.array:
         embeddings.append(result_embedding)
     return np.stack(embeddings)
 
-
-def subquery_divide_query(query: str) -> str:
-    return f"""Instruction: You are a retrieval-oriented query decomposer.
+SUBQUERY_DIVIDE_QUERY = """Instruction: You are a retrieval-oriented query decomposer.
 
 Goal – Produce the smallest set (1 – 5) of component-targeting sub-queries. Each sub-query must describe one retrievable component (sentence, paragraph, table row, figure, etc.) whose embedding should be matched. Together, the sub-queries must supply all the information needed to answer the original question.
 
@@ -34,8 +32,7 @@ Guidelines:
 Question: {query}
 Output: """
 
-def subquery_modality_query(subquery: str) -> str:
-    return f"""Instruction: You are a modality selector for multimodal QA.
+SUBQUERY_MODALITY_QUERY = """Instruction: You are a modality selector for multimodal QA.
 
 Task: Given the single sub-question below, choose the one modality that is most appropriate for obtaining its answer.
 
@@ -55,6 +52,25 @@ Output format: Return only the modality label on a single line – exactly text,
 Subquery: {subquery}
 Output: """
 
+LLM_QUESTION_QUERY = """Instruction: Using the f_answers() API, return a list of answers to the question based on retrieved webpage components. A retrieved component can be a passage, a table, or an image. Strictly follow the format of the example below and keep the answer short. For yes/no questions, respond only with f_answers(["yes"]) or f_answers(["no"]).
+
+Example:
+[Passage] Document title: South Asia The current territories of Afghanistan, Bangladesh, Bhutan, Maldives, Nepal, India, Pakistan, and Sri Lanka form South Asia. The South Asian Association for Regional Cooperation (SAARC) is an economic cooperation organisation established in 1985 that includes all eight nations comprising South Asia.
+[Passage] Document title: UK Joint Expeditionary Force The UK Joint Expeditionary Force (JEF) is a United Kingdom-led expeditionary force which may include Denmark, Finland, Estonia, Latvia, Lithuania, the Netherlands, Sweden, and Norway. It is distinct from the Franco-British Combined Joint Expeditionary Force.
+[Table] Document title: Lithuanian Armed Forces — Current operations Deployment | Organization | Operation | Personnel Somalia | EU | Operation Atalanta | 15 Mali | EU | EUTM Mali | 2 Afghanistan | NATO | Operation Resolute Support | 29 Libya | EU | EU Navfor Med | 3 Mali | UN | MINUSMA | 39 Iraq | CJTF | Operation Inherent Resolve | 6 Central African Republic | EU | EUFOR RCA | 1 Kosovo | NATO | KFOR | 1 Ukraine | — | Training mission | 40
+Question: Among the Lithuanian Armed Forces’ current operations, which deployment involves fewer personnel: Kosovo, or the deployment in the nation that, along with six others, constitutes the sub-continent of South Asia? Answer: The South Asia passage shows Afghanistan is part of that region. The table lists 29 personnel in Afghanistan and only 1 in Kosovo, so f_answers(["Kosovo"]).
+
+Using the images and texts given, answer the question below in a single word or phrase.
+{retrieved_comp_text}
+Question: {question}
+Answer: """
+
+def subquery_divide_query(query: str) -> str:
+    return SUBQUERY_DIVIDE_QUERY.format(query)
+
+def subquery_modality_query(subquery: str) -> str:
+    return SUBQUERY_MODALITY_QUERY.format(subquery=subquery)
+
 def llm_question_query(question: str, img_folder: str, doc_list: list[str], comp_list: list[dict]) -> tp.Tuple[str, tp.List[str]]:
     retrieved_comp_list = []
     img_paths = []
@@ -68,16 +84,4 @@ def llm_question_query(question: str, img_folder: str, doc_list: list[str], comp
             img_paths.append(get_clean_imagepath(img_folder, comp["src"]))
     
     retrieved_comp_text = "\n".join(retrieved_comp_list)
-    
-    return f"""Instruction: Using the f_answers() API, return a list of answers to the question based on retrieved webpage components. A retrieved component can be a passage, a table, or an image. Strictly follow the format of the example below and keep the answer short. For yes/no questions, respond only with f_answers(["yes"]) or f_answers(["no"]).
-
-Example:
-[Passage] Document title: South Asia The current territories of Afghanistan, Bangladesh, Bhutan, Maldives, Nepal, India, Pakistan, and Sri Lanka form South Asia. The South Asian Association for Regional Cooperation (SAARC) is an economic cooperation organisation established in 1985 that includes all eight nations comprising South Asia.
-[Passage] Document title: UK Joint Expeditionary Force The UK Joint Expeditionary Force (JEF) is a United Kingdom-led expeditionary force which may include Denmark, Finland, Estonia, Latvia, Lithuania, the Netherlands, Sweden, and Norway. It is distinct from the Franco-British Combined Joint Expeditionary Force.
-[Table] Document title: Lithuanian Armed Forces — Current operations Deployment | Organization | Operation | Personnel Somalia | EU | Operation Atalanta | 15 Mali | EU | EUTM Mali | 2 Afghanistan | NATO | Operation Resolute Support | 29 Libya | EU | EU Navfor Med | 3 Mali | UN | MINUSMA | 39 Iraq | CJTF | Operation Inherent Resolve | 6 Central African Republic | EU | EUFOR RCA | 1 Kosovo | NATO | KFOR | 1 Ukraine | — | Training mission | 40
-Question: Among the Lithuanian Armed Forces’ current operations, which deployment involves fewer personnel: Kosovo, or the deployment in the nation that, along with six others, constitutes the sub-continent of South Asia? Answer: The South Asia passage shows Afghanistan is part of that region. The table lists 29 personnel in Afghanistan and only 1 in Kosovo, so f_answers(["Kosovo"]).
-
-Using the images and texts given, answer the question below in a single word or phrase.
-{retrieved_comp_text}
-Question: {question}
-Answer: """, img_paths
+    return LLM_QUESTION_QUERY.format(question=question, retrieved_comp_text=retrieved_comp_text), img_paths

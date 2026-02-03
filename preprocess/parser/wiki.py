@@ -1,62 +1,159 @@
+import os
 import re
 import json
 import copy
 import typing as tp
 
+from concurrent.futures import ThreadPoolExecutor
+
 import urllib.parse
 from bs4 import BeautifulSoup, Tag
+from bs4.element import ResultSet
 
+from tqdm import tqdm
+
+from utils import get_clean_savepath
 from base import (
     ComponentData, BasePage, ParagraphComponent, ImageComponent, TableComponent
 )
 
 class WikiPage(BasePage):
-    def __init__(self, title: str, filepath: str) -> None:
+    def __init__(self, doc_title: str, doc_filepath: str, doc_savepath: str) -> None:
         super().__init__()
-        self.title = title
-        self.filepath = filepath
-        self.source = []
-        self.parsed: tp.List[ComponentData] = []
+        self.doc_title: str = doc_title
+        self.doc_filepath: str = doc_filepath
+        self.doc_savepath: str = doc_savepath
+        self.original_html_source: tp.List[Tag] = []
+        self.parsed_components: tp.List[ComponentData] = []
 
-    def save(self) -> bool:
-        result_list = [(0, {"title": self.title})]
-        for i, comp_data in enumerate(self.parsed):
-            result_list.append((i+1, comp_data.to_json()))
-        result_dict = dict(result_list)
-        with open(f'{self.filepath}.json', 'w', encoding='utf-8') as f:
-            json.dump(result_dict, f, ensure_ascii=False, indent=4)
+    def save_page(self) -> bool:
+        assert self.parsed_components
+        result_dict: tp.Dict[str, tp.Any] = {"title": self.doc_title, "comp_data": [parsed.to_json() for parsed in self.parsed_components]}
+        tqdm.write(f"Saving {self.doc_title}...")
+        with open(self.doc_savepath, 'w', encoding='utf-8') as f:
+            json.dump(result_dict, f, ensure_ascii=False, separators=(',', ':'))
         return True
 
     def read_file(self) -> bool:
         try:
-            with open(self.filepath, "r", encoding="utf-8") as f:
+            with open(self.doc_filepath, "r", encoding="utf-8") as f:
                 html_text = f.read()
             
             soup = BeautifulSoup(html_text, "html.parser")
-            self.convert_images_to_text(soup)
-            body = soup.find('body') or soup
-            all_elements = body.find_all('section', recursive=False)
+            self._convert_images_to_text(soup)
+            html_body_element = soup.find('body') or soup
+            all_html_elements = html_body_element.find_all('section', recursive=False)
             
-            if not all_elements:
+            if not all_html_elements:
                 content_wrapper = soup.find(id="mw-content-text") or soup
-                all_elements = content_wrapper.find_all('section', recursive=False)
-            if not all_elements:
+                all_html_elements = content_wrapper.find_all('section', recursive=False)
+            if not all_html_elements:
                 return False
             
-            self.source = []
-            for tag in all_elements:
-                classes = tag.get('class', [])
-                if "shortdescription" in classes or tag.name == 'style':
+            self.original_html_source = []
+            for element_tag in all_html_elements:
+                classes = element_tag.get('class', [])
+                if "shortdescription" in classes or element_tag.name == 'style':
                     continue
-                self.source.append(tag)
+                self.original_html_source.append(element_tag)
 
-            return len(self.source) > 0
-
+            return len(self.original_html_source) > 0
         except Exception as e:
-            print(f"Error: {e}")
+            tqdm.write(f"Error reading {self.doc_title}: {e}")
             return False
     
-    def flatten_elements(self, elements):
+    def parse_lines(self) -> bool:
+        self.parsed_components = []
+        current_heading_path: tp.List[str] = []
+        parse_stop_keywords: tp.Set[str] = { "References", "See also", "External links", "Notes", "Further reading", "Sources" }
+        ignore_table_class_list: tp.Set[str] = { 'ambox', 'mbox', 'cmbox', 'metadata' }
+
+        for original_section in self.original_html_source:
+            elements_in_section: ResultSet = original_section.find_all(recursive=False)
+            clean_element_list: tp.List = self._flatten_elements(elements_in_section)
+            
+            for clean_element in clean_element_list:
+                element_tag_type: str = clean_element.name
+                if element_tag_type in ['h2', 'h3', 'h4', 'h5', 'h6']:
+                    title_text = clean_element.get_text().strip()
+                    
+                    if any(stop.lower() in title_text.lower() for stop in parse_stop_keywords):
+                        break
+                    
+                    heading_level = int(element_tag_type[1]) - 2 
+                    current_heading_path = current_heading_path[:heading_level]
+                    current_heading_path.append(title_text)
+                    continue
+                
+                new_component = None
+                if element_tag_type == 'p':
+                    new_component = self.parse_paragraph(clean_element)
+                elif element_tag_type == 'table':
+                    if any(cls in ignore_table_class_list for cls in clean_element.get('class', [])):
+                        continue
+                    new_component = self.parse_table(clean_element)
+                elif element_tag_type == 'figure':
+                    new_component = self.parse_figure(clean_element)
+                elif element_tag_type in ['ul', 'ol']:
+                    new_component = self.parse_list(clean_element)
+
+                if new_component is not None:
+                    new_component.heading_path = copy.deepcopy(current_heading_path)
+                    self.parsed_components.append(new_component)
+        return True
+
+    def parse_paragraph(self, data: Tag) -> tp.Union[ParagraphComponent, None]:
+        paragraph_copy = copy.deepcopy(data)
+        final_text, edge_sets = self._convert_tag(paragraph_copy)
+        if len(final_text.strip()) < 1:
+            return None
+        else:
+            return ParagraphComponent(paragraph=final_text, edge=list(edge_sets))
+
+    def parse_list(self, data: Tag) -> tp.Union[ParagraphComponent, None]:
+        accumulated_texts, edge_sets = self._extract_list_recursive(data)
+        pure_text = " ".join(accumulated_texts).replace(" \n ", "\n").replace(" \n", "\n").replace("\n ", "\n").strip()
+        if not pure_text:
+            return None
+        return ParagraphComponent(paragraph=pure_text, edge=list(edge_sets))
+
+    def parse_table(self, data: Tag) -> TableComponent:
+        table_tag = data.find('tbody') or Tag()
+        rows = []
+        edge_set = set()
+        for tr in table_tag.find_all('tr', recursive=False):
+            row_data = []
+            for cell in tr.find_all(['th', 'td'], recursive=False):
+                row_text, edge = self._convert_tag(cell)
+                row_data.append(row_text)
+                edge_set.update(edge)
+            if row_data:
+                rows.append(row_data)
+        
+        return TableComponent(table=rows, edge=list(edge_set))
+
+    def parse_figure(self, data: Tag) -> tp.Union[ImageComponent, None]:
+        link_element = data.find('a')
+        if link_element is None:
+            return None
+        src = link_element.get('href', '')
+        if not src:
+            return None
+
+        filename = src.replace('./File:', '').replace('File:', '')
+        filename = urllib.parse.unquote(filename)
+        full_url = f"https://en.wikipedia.org/wiki/Special:FilePath/{filename}"
+
+        caption_tag = data.find('figcaption')
+        caption_text = ""
+        
+        edge_set = set()
+        if caption_tag:
+            caption_text, edge_set = self._convert_tag(caption_tag)
+        
+        return ImageComponent(src=full_url, caption=caption_text, edge=list(edge_set))
+
+    def _flatten_elements(self, elements: tp.List) -> tp.List:
         if not elements:
             return []
 
@@ -67,144 +164,85 @@ class WikiPage(BasePage):
             
             elif el.name in {'div', 'section', 'center'}:
                 children = [c for c in el.children if c.name]
-                flattened.extend(self.flatten_elements(children))
-                
+                flattened.extend(self._flatten_elements(children))
+        
         return flattened
-    
-    def parse_lines(self) -> bool:
-        self.parsed = []
-        current_heading_path = []
-        stop_keywords = { "References", "See also", "External links", "Notes", "Further reading", "Sources" }
-        ignore_table_classes = { 'ambox', 'mbox', 'cmbox', 'metadata' }
 
-        for section in self.source:
-            elements = section.find_all(recursive=False)
-            clean_elements = self.flatten_elements(elements)
-            
-            for data in clean_elements:
-                data_tag = data.name
-                if data_tag in ['h2', 'h3', 'h4', 'h5', 'h6']:
-                    title_text = data.get_text().strip()
-                    
-                    if any(stop.lower() in title_text.lower() for stop in stop_keywords):
-                        break
-                    
-                    level = int(data_tag[1]) - 2 
-                    current_heading_path = current_heading_path[:level]
-                    current_heading_path.append(title_text)
-                    continue
-                
-                new_component = None
-                if data_tag == 'p':
-                    new_component = self.parse_paragraph(data)
-                elif data_tag == 'table':
-                    if any(cls in ignore_table_classes for cls in data.get('class', [])):
-                        continue
-                    new_component = self.parse_table(data)
-                elif data_tag == 'figure':
-                    new_component = self.parse_figure(data)
-                elif data_tag in ['ul', 'ol']:
-                    new_component = self.parse_list(data)
+    def _extract_list_recursive(self, node: tp.Union[Tag, str]) -> tp.Tuple[tp.List[str], tp.Set[str]]:
+        text_list: tp.List[str] = []
+        links: tp.Set[str] = set()
 
-                if new_component is not None:
-                    new_component.heading_path = copy.deepcopy(current_heading_path)
-                    self.parsed.append(new_component)
-        return True
-
-    def parse_paragraph(self, data: Tag) -> tp.Union[ParagraphComponent, None]:
-        p_copy = copy.deepcopy(data)
-        final_text, edge = self.convert_tag(p_copy)
-        if len(final_text.strip()) < 1:
-            return None
+        if isinstance(node, str):
+            clean_text = " ".join(node.split())
+            if clean_text:
+                text_list.append(clean_text)
+        elif node.name == "a":
+            href = node.get("href") or ""
+            if href.startswith("/wiki/") and ":" not in href:
+                target_title = href.replace("/wiki/", "").replace("_", " ")
+                links.add(target_title)
+            link_text = " ".join(node.get_text().split())
+            if link_text:
+                text_list.append(link_text)
+        elif node.name == "li":
+            item_parts = []
+            for child in node.children:
+                child_text, child_links = self._extract_list_recursive(child)
+                item_parts.extend(child_text)
+                links.update(child_links)
+            combined_text = "- " + " ".join(item_parts).strip() + "\n"
+            return [combined_text], links
+        elif node.name in ["sup", "style", "script"]:
+            return [], set()
         else:
-            return ParagraphComponent(paragraph=final_text, edge=edge)
+            for child in node.children:
+                new_text, new_links = self._extract_list_recursive(child)
+                text_list.extend(new_text)
+                links.update(new_links)
 
-    def parse_list(self, data: Tag) -> tp.Union[ParagraphComponent, None]:
-        list_copy = copy.deepcopy(data)
-        lines = []
+        return text_list, links
 
-        def walk_list(tag: Tag, depth: int = 0):
-            for li in tag.find_all('li', recursive=False):
-                for ref in li.find_all(['sup', 'span'], class_='reference'):
-                    ref.decompose()
-                self.convert_wikilink(li)
-
-                sub_lists = li.find_all(['ul', 'ol'], recursive=False)
-                for sub in sub_lists:
-                    sub.extract() # li 텍스트 추출을 위해 잠시 분리
-
-                # 현재 li의 순수 텍스트 추출 및 정리
-                item_text = li.get_text(separator=' ', strip=True)
-                item_text = re.sub(r'\s+', ' ', item_text)
-
-                if item_text:
-                    indent = "  " * depth # 들여쓰기 적용
-                    lines.append(f"{indent}* {item_text}")
-
-                # 하위 리스트가 있다면 재귀적으로 처리
-                for sub in sub_lists:
-                    walk_list(sub, depth + 1)
-
-        walk_list(list_copy)
-
-        # 리스트 아이템들을 줄바꿈으로 합쳐서 하나의 문단으로 반환
-        final_text = "\n".join(lines)
-        return ParagraphComponent(final_text)
-
-    def parse_table(self, data: Tag) -> TableComponent:
-        table_tag = data
-        rows = []
-        edge_set = set()
-        for tr in table_tag.find_all('tr', recursive=False):
-            row_data = []
-            for cell in tr.find_all(['th', 'td'], recursive=False):
-                row_text, edge = self.convert_tag(cell)
-                row_data.append(row_text)
-                edge_set.update(edge)
-            if row_data:
-                rows.append(row_data)
-        
-        return TableComponent(table=rows, edge=edge_set)
-
-    def parse_figure(self, data: Tag) -> tp.Union[ImageComponent, None]:
-        link_element = data.find('a')
-        if link_element is None:
-            return None
-        src = link_element.get('href', '')
-        if not src:
-            return None
-
-        caption_tag = data.find('figcaption')
-        caption_text = ""
-        
-        edge_set = set()
-        if caption_tag:
-            caption_text, edge_set = self.convert_tag(caption_tag)
-        
-        return ImageComponent(src=src, caption=caption_text, edge=edge_set)
-
-    def convert_images_to_text(self, data: Tag):
+    def _convert_images_to_text(self, data: Tag):
         for img in data.find_all('img'):
-            alt = img.get('src', '').strip()
-            full_url = "https:" + alt if alt.startswith("//") else alt
-            if '/thumb/' in full_url:
-                full_url = full_url.replace('/thumb/', '/')
-                full_url = re.sub(r'/[^/]+$', '', full_url)
-            replacement = f"[[{full_url}]]" if alt else "[Image]"
-            img.replace_with(replacement)
+            res = img.get('resource')
+            full_url = ""
 
-    def convert_tag(self, data: Tag) -> tp.Tuple[str, set]:
+            if res:
+                file_name = res.replace('./File:', '').replace('File:', '')
+                file_name = urllib.parse.unquote(file_name)
+                full_url = f"https://en.wikipedia.org/wiki/Special:FilePath/{file_name}"
+            else:
+                src = img.get('src', '').strip()
+                if not src: continue
+                
+                raw_url = "https:" + src if src.startswith("//") else src
+                
+                if 'upload.wikimedia.org' in raw_url:
+                    parts = raw_url.split('/')
+                    if '/thumb/' in raw_url:
+                        file_name = urllib.parse.unquote(parts[-2])
+                    else:
+                        file_name = urllib.parse.unquote(parts[-1])
+                    
+                    full_url = f"https://en.wikipedia.org/wiki/Special:FilePath/{file_name}"
+                else:
+                    full_url = raw_url
+
+            if full_url:
+                img.replace_with(f"[[{full_url}]]")
+
+    def _convert_tag(self, data: Tag) -> tp.Tuple[str, tp.Set[str]]:
         for ref in data.find_all(['sup', 'span'], class_='reference'): # 주석 제거
             ref.decompose()
         
-        edge_set = self.convert_wikilink(data)
+        edge_set = self._convert_wikilink(data)
         
         result_text = data.get_text(separator=' ', strip=True)
         result_text = re.sub(r'\s+', ' ', result_text)
         return result_text, edge_set
     
-    def convert_wikilink(self, data: Tag) -> set:
-        result_edge = set()
+    def _convert_wikilink(self, data: Tag) -> tp.Set[str]:
+        result_edge: tp.Set[str] = set()
         for a in list(data.find_all('a')):
             href = a.get('href', '')
             rel = a.get('rel', [])
@@ -224,3 +262,71 @@ class WikiPage(BasePage):
             else:
                 a.unwrap()
         return result_edge
+
+class WikiBatchParser:
+    def __init__(
+        self,
+        doc_html_save_folderpath: str,
+        doc_json_save_folderpath: str,
+        doc_title_list: tp.List[str],
+    ) -> None:
+        assert os.path.exists(doc_json_save_folderpath)
+        assert os.path.exists(doc_html_save_folderpath)
+        
+        self.doc_html_save_folderpath: str = doc_html_save_folderpath
+        self.doc_json_save_folderpath: str = doc_json_save_folderpath
+        self.doc_title_list: tp.List[str] = sorted(doc_title_list) # Order preservation
+        
+        self.progress_bar: tqdm = tqdm(total=0, desc="Parsing Wiki Pages")
+
+    def _parse_and_save(self, doc_title: str) -> bool:
+        json_clean_save_filepath: str = get_clean_savepath(self.doc_json_save_folderpath, doc_title, "json")
+        html_doc_clean_filepath: str = get_clean_savepath(self.doc_html_save_folderpath, doc_title, "html")
+        if os.path.exists(f"{json_clean_save_filepath}"):
+            self.progress_bar.update(1)
+            return True
+
+        try:
+            wiki_page: WikiPage = WikiPage(doc_title, html_doc_clean_filepath, json_clean_save_filepath)
+            
+            read_file_result = wiki_page.read_file()
+            parse_lines_result = wiki_page.parse_lines()
+            save_page_result = wiki_page.save_page()
+            
+            self.progress_bar.update(1)
+            
+            return read_file_result and parse_lines_result and save_page_result
+        except Exception as e:
+            tqdm.write(f"Error parsing {doc_title}: {e}")
+            return False
+
+    def run_batch(self, failed_doc_title_list_filepath: str, max_workers: int = 10) -> bool:
+        assert self.doc_title_list == sorted(self.doc_title_list)
+        
+        self.progress_bar.total = len(self.doc_title_list)
+        
+        crawl_result_list: tp.List[bool] = []
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            crawl_result_list = list(executor.map(self._parse_and_save, self.doc_title_list))
+        
+        self.progress_bar.close()
+        
+        failed_doc_title_list: tp.List[str] = [self.doc_title_list[i] for i, r in enumerate(crawl_result_list) if not r]
+        failed_count: int = len(failed_doc_title_list)
+        success_count: int = self.progress_bar.total - failed_count
+        
+        print(f"\nParse complete.")
+        print(f" - Total: {self.progress_bar.total}")
+        print(f" - Success: {success_count}")
+        print(f" - Failed: {failed_count}\n")
+
+        if failed_doc_title_list:
+            try:
+                with open(failed_doc_title_list_filepath, "w", encoding="utf-8") as f:
+                    for page in failed_doc_title_list:
+                        f.write(f"{page}\n")
+                print(f"Failed doc title list saved to: {os.path.abspath(failed_doc_title_list_filepath)}")
+            except Exception as e:
+                print(f"Error saving failed pages list: {e}")
+        
+        return True
