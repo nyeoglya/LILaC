@@ -5,6 +5,9 @@ WORKDIR /app
 RUN pip install --no-cache-dir --upgrade pip
 
 RUN pip install --no-cache-dir \
+    "tqdm"
+
+RUN pip install --no-cache-dir \
     "numpy" \
     "requests" \
     "pysbd"

@@ -93,5 +93,6 @@ services:
 
 networks:
   network:
-    name: lilac-network
     driver: bridge
+    name: lilac-network
+    external: true

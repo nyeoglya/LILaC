@@ -1,6 +1,7 @@
 from __future__ import annotations
 import os
 import typing as tp
+import threading
 
 import torch
 from transformers import AutoModelForImageTextToText, AutoProcessor
@@ -36,10 +37,12 @@ class Qwen3_VL:
             trust_remote_code=True,
         ).eval()
         print("[Qwen3_VL] Model and tokenizer loaded successfully.")
+        self._lock = threading.Lock()
 
     @torch.inference_mode()
     def inference(self, gen_input: GenerationInput, max_tokens: int) -> GenerationOutput:
-        return self.batch_inference([gen_input], batch_size=1, max_tokens=max_tokens)[0]
+        with self._lock:
+            return self.batch_inference([gen_input], batch_size=1, max_tokens=max_tokens)[0]
 
     @torch.inference_mode()
     def batch_inference(self, gen_inputs: tp.List[GenerationInput], batch_size: int, max_tokens: int) -> tp.List[GenerationOutput]:

@@ -17,3 +17,6 @@ lilac_*.jsonl
 # model files
 hf_models
 hf_cache
+
+# sensitive info
+**/env.py

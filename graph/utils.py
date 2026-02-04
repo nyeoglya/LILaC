@@ -1,14 +1,15 @@
 import os
 import requests
 import typing as tp
-from urllib.parse import unquote
+import urllib.parse
 from dataclasses import dataclass
 
 import numpy as np
 
-JSON_FOLDER = "/dataset/crawl/mmqa_html/"
+PARSED_JSON_FOLDER = "/dataset/parse/mmqa_json/"
 IMG_FOLDER = "/dataset/crawl/mmqa_image/"
 LDOC_FOLDER = "/dataset/process/mmqa/"
+
 GRAPH_TEMP_FILE = "lilac_temp.jsonl"
 LLM_TEMP_FILE = "lilac_llm_temp.jsonl"
 FINAL_RESULT_FILENAME = "lilac_query_answers.json"
@@ -21,20 +22,22 @@ class EmbeddingRequestData:
     text: str = ""
     img_path: str = ""
 
-def get_clean_imagepath(img_folder, image_str):
-    invalid_chars = '<>:"/\\|?*'
-    clean_name = unquote(image_str)
-    if "File:" in clean_name:
-        clean_name = clean_name.split("File:")[1]
-    elif "https://" in clean_name:
-        clean_name = clean_name.split("/")[-1]
-    for char in invalid_chars:
-        clean_name = clean_name.replace(char, '')
+def get_clean_savepath_from_url(image_save_folder_path: str, original_url: str) -> str:
+    url_path: str = original_url.split('?')[0]
+    raw_filename: str = url_path.split('/')[-1]
+    decoded_name: str = urllib.parse.unquote(raw_filename)
+    name_without_ext, extension = os.path.splitext(decoded_name)
+    extension = extension.replace(".","")
+    if not extension:
+        extension: str = "jpg"
+    return get_clean_savepath(image_save_folder_path, name_without_ext, extension)
 
-    full_path = os.path.join(img_folder, clean_name)
-    return full_path
+def get_clean_savepath(save_folderpath: str, filename: str, extension: str) -> str:
+    clean_file_name: str = "".join([c for c in filename if c.isalnum() or c in (' ', '_', '-')]).rstrip()
+    clean_file_path: str = os.path.join(save_folderpath, f"{clean_file_name}.{extension}")
+    return clean_file_path
 
-def get_query_embedding(instruction, text, img_path="") -> tp.List[float]:
+def get_query_embedding(instruction, text, img_path="") -> np.ndarray:
     payload = {
         "instruction": instruction,
         "text": text,
@@ -48,7 +51,7 @@ def get_query_embedding(instruction, text, img_path="") -> tp.List[float]:
     embedding = np.array(data["embedding"], dtype=np.float32)
     return embedding
 
-def get_embedding(reqeust_data: EmbeddingRequestData) -> tp.List[float]:
+def get_embedding(reqeust_data: EmbeddingRequestData) -> np.ndarray:
     payload = {
         "text": reqeust_data.text,
         "img_path": reqeust_data.img_path,
@@ -61,7 +64,9 @@ def get_embedding(reqeust_data: EmbeddingRequestData) -> tp.List[float]:
     embedding = np.array(data["embedding"], dtype=np.float32)
     return embedding
 
-def get_batch_embedding(request_data_list: tp.List[EmbeddingRequestData]) -> tp.List[np.array]:
+def get_batch_embedding(request_data_list: tp.List[EmbeddingRequestData]) -> tp.List[np.ndarray]:
+    return [] # TODO: 변경하기
+
     payloads = [{
         "text": request_data.text,
         "img_path": request_data.img_path,

@@ -2,10 +2,10 @@ import numpy as np
 import typing as tp
 
 from utils import (
-    get_clean_imagepath, get_query_embedding, get_llm_response
+    get_clean_savepath_from_url, get_query_embedding, get_llm_response
 )
 
-def get_subembeddings(text, img_path="") -> np.array:
+def get_subembeddings(text, img_path="") -> np.ndarray:
     query = subquery_divide_query(text)
     subqueries = get_llm_response("", query).replace("\n","").split(";")
     embeddings = []
@@ -81,7 +81,7 @@ def llm_question_query(question: str, img_folder: str, doc_list: list[str], comp
             table_text = " | ".join([" | ".join(row) for row in comp["table"]])
             retrieved_comp_list.append(f"[Table] Document title: {doc_title} {table_text}")
         elif comp["type"] == "image":
-            img_paths.append(get_clean_imagepath(img_folder, comp["src"]))
+            img_paths.append(get_clean_savepath_from_url(img_folder, comp["src"]))
     
     retrieved_comp_text = "\n".join(retrieved_comp_list)
     return LLM_QUESTION_QUERY.format(question=question, retrieved_comp_text=retrieved_comp_text), img_paths

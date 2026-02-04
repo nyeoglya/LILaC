@@ -27,11 +27,12 @@ app = FastAPI(
     title="Qwen3-VL Inference Server",
     lifespan=lifespan,
 )
+app.state.sem = asyncio.Semaphore(1)
 
 class SinglePromptRequest(BaseModel):
     text: str
     img_paths: tp.List[str] = Field(default_factory=list)
-    max_tokens: int = Field(default=512, ge=1, le=4096)
+    max_tokens: int = Field(default=256, ge=1, le=4096)
 
 class SinglePromptResponse(BaseModel):
     response: str
@@ -39,7 +40,7 @@ class SinglePromptResponse(BaseModel):
 class BatchPromptRequest(BaseModel):
     prompts: tp.List[str] = Field(default_factory=list)
     img_paths: tp.List[tp.List] = Field(default_factory=list)
-    max_tokens: int = Field(default=512, ge=1, le=4096)
+    max_tokens: int = Field(default=256, ge=1, le=4096)
 
 class BatchPromptResponse(BaseModel):
     response: tp.List[str]
@@ -50,11 +51,12 @@ async def generate_text(request: SinglePromptRequest):
     try:
         gen_input = GenerationInput(text=request.text, img_paths=request.img_paths)
 
-        output = await asyncio.to_thread(
-            app.state.model.inference,
-            gen_input,
-            request.max_tokens,
-        )
+        async with app.state.sem:
+            output = await asyncio.to_thread(
+                app.state.model.inference,
+                gen_input,
+                request.max_tokens,
+            )
 
         return SinglePromptResponse(response=output.text)
 

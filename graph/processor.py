@@ -8,9 +8,9 @@ from tqdm import tqdm
 import numpy as np
 
 from utils import (
-    get_embedding, get_batch_embedding, get_clean_imagepath,
+    get_embedding, get_batch_embedding, get_clean_savepath_from_url,
     EmbeddingRequestData,
-    JSON_FOLDER, IMG_FOLDER, LDOC_FOLDER
+    PARSED_JSON_FOLDER, IMG_FOLDER, LDOC_FOLDER
 )
 import pysbd
 
@@ -19,8 +19,8 @@ class ProcessedComponent:
         self.component_uuid: str = ""
         self.original_json_filepath: str = ""
         self.original_component = original_component
-        self.component_embedding: np.array = np.array([])
-        self.subcomponent_embeddings: tp.List[np.array] = [] # list(subcomp embed vector)
+        self.component_embedding: np.ndarray = np.array([])
+        self.subcomponent_embeddings: tp.List[np.ndarray] = [] # list(subcomp embed vector)
         self.neighbor_components: tp.List[str] = [] # list(comp unique id)
 
 class LILaCDocument:
@@ -35,7 +35,7 @@ class LILaCDocument:
         self.text_segmenter = text_segmenter
 
         self.doc_title: str = ""
-        self.json_data = None
+        self.json_data: tp.Dict = dict()
         
         self.processed_components: tp.List[ProcessedComponent] = []
 
@@ -43,39 +43,39 @@ class LILaCDocument:
         try:
             with open(save_path, 'wb') as f:
                 pickle.dump(self, f)
-            print(f"Successfully saved to {save_path}")
+            tqdm.write(f"Successfully saved to {save_path}")
             return True
         except Exception as e:
-            print(f"Save failed: {e}")
+            tqdm.write(f"Save failed: {e}")
             return False
 
     @staticmethod
-    def load(load_path: str):
+    def load(load_path: str) -> tp.Optional[tp.Any]:
         try:
             if not os.path.exists(load_path):
-                print("File not found.")
+                tqdm.write("File not found.")
                 return None
             
             with open(load_path, 'rb') as f:
                 obj = pickle.load(f)
             return obj
         except Exception as e:
-            print(f"Load failed: {e}")
+            tqdm.write(f"Load failed: {e}")
             return None
 
     def load_json(self) -> bool:
         if not os.path.exists(self.json_filepath):
-            print(f"Error: {self.json_filepath} not exists.")
+            tqdm.write(f"Error: {self.json_filepath} not exists.")
             return False
-
+        
         try:
             with open(self.json_filepath, 'r', encoding='utf-8') as json_file:
                 self.json_data = json.load(json_file)
             return True
         except json.JSONDecodeError:
-            print("Error: incorrect JSON file format")
+            tqdm.write("Error: incorrect JSON file format")
         except Exception as e:
-            print(f"Error: {e}")
+            tqdm.write(f"Error: {e}")
         
         return False
     
@@ -112,21 +112,15 @@ class LILaCDocument:
     
     def process_table_component(self, component) -> ProcessedComponent:
         original_table: tp.List[tp.List[str]] = component["table"]
+        heading_path: tp.List[str] = component["heading_path"]
         table_first_row: tp.List[str] = original_table[0]
-        first_row_length: int = len(table_first_row)
-        is_structure_n_by_m: bool = all(isinstance(row, list) and len(row) == first_row_length for row in original_table)
-        subcomponent_embeddings: tp.List[ProcessedComponent] = []
-        if is_structure_n_by_m: # NxM structure
-            if len(original_table) == 1:
-                text, img_paths = self._flatten_table([table_first_row])
-                subcomponent_embeddings.append(get_embedding(EmbeddingRequestData(text, img_paths[0] if img_paths else "")))
-            else:
-                for table_line in original_table[1:]:
-                    text, img_paths = self._flatten_table([table_first_row, table_line])
-                    subcomponent_embeddings.append(get_embedding(EmbeddingRequestData(text, img_paths[0] if img_paths else "")))
-        else: # not NxM structure (ex: infobox)
-            for table_line in original_table:
-                text, img_paths = self._flatten_table([table_line])
+        subcomponent_embeddings: tp.List[np.ndarray] = []
+        if len(original_table) == 1:
+            text, img_paths = self._flatten_table([table_first_row], heading_path)
+            subcomponent_embeddings.append(get_embedding(EmbeddingRequestData(text, img_paths[0] if img_paths else "")))
+        else:
+            for table_line in original_table[1:]:
+                text, img_paths = self._flatten_table([table_first_row, table_line], heading_path)
                 subcomponent_embeddings.append(get_embedding(EmbeddingRequestData(text, img_paths[0] if img_paths else "")))
         
         result_component = ProcessedComponent(component)
@@ -135,21 +129,21 @@ class LILaCDocument:
         result_component.component_embedding = np.mean(np.stack(subcomponent_embeddings, axis=0), axis=0)
         
         return result_component
-        
-    def process_image_component(self, component) -> ProcessedComponent:
-        full_path = get_clean_imagepath(self.img_folder, component["src"])
+    
+    def process_image_component(self, component) -> tp.Optional[ProcessedComponent]:
+        full_path = get_clean_savepath_from_url(self.img_folder, component["src"])
         if not os.path.exists(full_path):
-            print(f"Error: No {full_path} exists")
+            tqdm.write(f"Error: No {full_path} exists")
             return None
         
         result_component = ProcessedComponent(component)
         result_component.neighbor_components = component["edge"]
         result_component.component_embedding = get_embedding(EmbeddingRequestData(component["caption"], full_path))
-        result_component.subcomponent_embeddings = [result_component.component_embedding]
+        result_component.subcomponent_embeddings = [result_component.component_embedding] # TODO
 
         return result_component
 
-    def _flatten_table(self, table_data):
+    def _flatten_table(self, table_data, heading_path):
         image_link_pattern = r"\[\[([^\]]+)\]\]"
         image_path_list: tp.List[str] = []
         result_text_list: tp.List[str] = []
@@ -157,12 +151,12 @@ class LILaCDocument:
         for table_row in table_data:
             temp_list = []
             for table_elem in table_row:
-                elem_img_lists = [get_clean_imagepath(self.img_folder, item) for item in re.findall(image_link_pattern, table_elem)]
-                image_path_list.extend(elem_img_lists)
+                element_img_list = [get_clean_savepath_from_url(self.img_folder, item) for item in re.findall(image_link_pattern, table_elem)]
+                image_path_list.extend(element_img_list)
                 text = re.sub(image_link_pattern, '', table_elem).strip()
                 if text:
                     temp_list.append(text)
-            result_text_list.append(" [SEP] ".join(temp_list))
+            result_text_list.append(" | ".join(temp_list))
         result_text = " \n ".join(result_text_list)
         
         clean_image_path_list = []
@@ -170,7 +164,9 @@ class LILaCDocument:
             if os.path.exists(image_path):
                 clean_image_path_list.append(image_path)
             else:
-                print(f"Error: no {image_path} exists")
+                tqdm.write(f"Error: no {image_path} exists")
+        
+        result_text = f"{self.doc_title} [SEP] {' > '.join(heading_path)} [SEP] {result_text}"
         
         return result_text, clean_image_path_list
     
@@ -178,7 +174,12 @@ class LILaCDocument:
         pass
 
 class SequentialDataEmbedder:
-    def __init__(self, json_folder_path: str, img_folder: str, ldoc_folder_path: str) -> None:
+    def __init__(
+        self,
+        json_folder_path: str,
+        img_folder: str,
+        ldoc_folder_path: str
+    ) -> None:
         self.json_folder_path: str = json_folder_path
         self.img_folder: str = img_folder
         self.ldoc_folder_path: str = ldoc_folder_path
@@ -202,7 +203,7 @@ class SequentialDataEmbedder:
 
         return True
 
-    def load_json(self) -> bool:
+    def load_json_filelist(self) -> bool:
         if not os.path.exists(self.json_folder_path):
             return False
 
@@ -243,29 +244,33 @@ class SequentialDataEmbedder:
         return True
 
     def run(self) -> bool:
+        self.progress_bar.total = len(self.json_path_list)
+        
         for json_path in self.json_path_list:
             new_doc = LILaCDocument(json_path, self.segmenter, self.img_folder)
             new_doc.load_json()
-            new_doc_title = new_doc.json_data["0"]["title"]
+            new_doc_title = new_doc.json_data["title"]
             new_ldoc_path = os.path.join(self.ldoc_folder_path, f"{new_doc_title}.ldoc")
             if os.path.exists(new_ldoc_path):
-                print(f"Skip document {new_doc_title} as it is already parsed.")
+                tqdm.write(f"Skip document {new_doc_title} as it is already parsed.")
                 continue
             
             try:
-                comp_id = new_doc.run(comp_id)
+                new_doc.run()
                 new_doc.save(new_ldoc_path)
                 self.lilac_doc_dict[new_doc.doc_title] = new_doc
-            except:
-                print(f"Skip document {new_doc_title} as it failed")
+                self.progress_bar.update(1)
+            except Exception as e:
+                tqdm.write(f"Skip document {new_doc_title} as it failed: {e}")
         return True
 
 if __name__ == "__main__":
-    batch_data_processor = SequentialDataEmbedder(JSON_FOLDER, IMG_FOLDER, LDOC_FOLDER)
-    test_segmenter = pysbd.Segmenter(language="en", clean=False,)
-    # batch_data_processor.load_json()
-    # batch_data_processor.run()
-    # batch_data_processor.edge_remapping()
+    sequential_data_embedder = SequentialDataEmbedder(PARSED_JSON_FOLDER, IMG_FOLDER, LDOC_FOLDER)
+    sequential_data_embedder.load_json_filelist()
+    sequential_data_embedder.run()
+    
+    '''
+    sequential_data_embedder.edge_remapping()
     
     lilac_doc: LILaCDocument = LILaCDocument.load('/dataset/process/mmqa/Tell_Me_That_You_Love_Me,_Junie_Moon.ldoc')
     embeds = lilac_doc.processed_components[0].subcomponent_embeddings
@@ -282,3 +287,4 @@ if __name__ == "__main__":
     print(np.max(sim1, axis=1))
     
     print(lilac_doc.processed_components[0].original_component)
+    '''

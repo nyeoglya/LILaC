@@ -8,7 +8,7 @@ def mmqa_get_clean_wikidocs_titles(mmqa_path: str) -> tp.List[str]:
     mmqa_textpath = os.path.join(mmqa_path, "MMQA_texts.jsonl")
     mmqa_imagepath = os.path.join(mmqa_path, "MMQA_images.jsonl")
     mmqa_tablepath = os.path.join(mmqa_path, "MMQA_tables.jsonl")
-        
+    
     doc_ids = set()
     img_ids = set()
     tab_ids = set()
