@@ -5,7 +5,7 @@ from utils_mmqa import mmqa_get_clean_wikidocs_titles
 
 from parser.wiki import WikiBatchParser
 from crawler.wiki import WikiBatchCrawler, BatchWikiImageCrawler
-from image_descriptor import SequentialImageNormalizer, SequentialImageDescriptor, BatchImageDescriptor, BatchObjectDetector
+from image_descriptor import SequentialImageNormalizer, BatchImageDescriptor, BatchObjectDetector
 
 from config import (
     MMQA_PATH,
@@ -45,25 +45,20 @@ def preprocess_main() -> None:
     '''
     sequential_image_normalizer = SequentialImageNormalizer(MMQA_CRAWL_IMAGE_FOLDER, MMQA_PROCESS_IMAGE_FOLDER)
     sequential_image_normalizer.load_image_filelist()
-    sequential_image_normalizer.run(MMQA_PROCESS_IMAGE_FAILED_FILE)
+    sequential_image_normalizer.run_normalize(MMQA_PROCESS_IMAGE_FAILED_FILE)
     '''
     
     # Image Descriptor
-    ''' Sequential Version
-    sequential_image_descriptor = SequentialImageDescriptor(MMQA_PROCESS_IMAGE_FOLDER)
-    sequential_image_descriptor.load_image_filelist()
-    sequential_image_descriptor.run(MMQA_IMAGE_DESCRIPTION_FAILED_FILE, MMQA_IMAGE_DESCRIPTION_INFO_FILE)
     '''
-    ''' Batch Version
     batch_image_descriptor = BatchImageDescriptor(MMQA_PROCESS_IMAGE_FOLDER)
     batch_image_descriptor.load_image_filelist()
-    batch_image_descriptor.run(MMQA_IMAGE_DESCRIPTION_FAILED_FILE, MMQA_IMAGE_DESCRIPTION_INFO_FILE, QWEN_SERVER_URL_LIST)
+    batch_image_descriptor.run_description(MMQA_IMAGE_DESCRIPTION_FAILED_FILE, MMQA_IMAGE_DESCRIPTION_INFO_FILE, QWEN_SERVER_URL_LIST)
     '''
 
     # Object Detector
     '''
     batch_object_detector = BatchObjectDetector(MMQA_CRAWL_IMAGE_FOLDER)
-    batch_object_detector.run(MMQA_OBJECT_DETECT_FAILED_FILE, MMQA_OBJECT_DETECT_INFO_FILE)
+    batch_object_detector.run_detection(MMQA_OBJECT_DETECT_FAILED_FILE, MMQA_OBJECT_DETECT_INFO_FILE)
     '''
 
 

@@ -4,7 +4,8 @@ import urllib.parse
 import typing as tp
 
 from utils_mmqa import mmqa_get_clean_wikidocs_titles
-from image_descriptor import BatchImageEmbedder
+from image_descriptor import BatchImageRemapEmbedder
+from config import MMQA_IMAGE_REMAP_EMBEDDING_FAILED_FILEPATH, MMQA_IMAGE_REMAP_EMBEDDING_PT
 
 def mmqa_find_component_from_file(mmqa_path: str) -> tp.Dict[str, tp.Dict[str, tp.List[str]]]:
     clean_titles: tp.List[str] = mmqa_get_clean_wikidocs_titles(mmqa_path)
@@ -44,13 +45,6 @@ def mmqa_find_component_from_file(mmqa_path: str) -> tp.Dict[str, tp.Dict[str, t
     print(f"Extract {len(result)} wiki titles with components")
     return result
 
-
-MMQA_REFERENCE_REMAP_EMBEDDING_PT = "/dataset/process/mmqa_reference_image_remap_embedding.pt"
-MMQA_REFERENCE_REMAP_EMBEDDING_FAILED_FILEPATH = "/dataset/process/mmqa_reference_image_remap_failed.txt"
-
-MMQA_IMAGE_REMAP_EMBEDDING_PT = "/dataset/process/mmqa_image_remap_embedding.pt"
-MMQA_IMAGE_REMAP_EMBEDDING_FAILED_FILEPATH = "/dataset/process/mmqa_image_remap_embedding_failed.txt"
-
 if __name__ == "__main__":
     '''
     mmqa_component_map = mmqa_find_component_from_file("/dataset/original/")
@@ -71,5 +65,5 @@ if __name__ == "__main__":
     '''
     
     mmqa_imagepath_list = ["/dataset/process/mmqa_image/" + filename for filename in os.listdir("/dataset/process/mmqa_image")]
-    embedder = BatchImageEmbedder(mmqa_imagepath_list)
-    embedder.run(MMQA_IMAGE_REMAP_EMBEDDING_FAILED_FILEPATH, MMQA_IMAGE_REMAP_EMBEDDING_PT)
+    embedder = BatchImageRemapEmbedder(mmqa_imagepath_list)
+    embedder.run_embedding(MMQA_IMAGE_REMAP_EMBEDDING_FAILED_FILEPATH, MMQA_IMAGE_REMAP_EMBEDDING_PT)

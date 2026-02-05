@@ -11,17 +11,18 @@ import numpy as np
 
 import pysbd
 
-from config import MMQA_PARSE_JSON_FOLDER, MMQA_PROCESS_IMAGE_FOLDER, MMQA_LDOC_FOLDER, MMEMBED_SERVER_URL_LIST
+from config import MMEMBED_SERVER_URL_LIST
 from utils import (
     get_embedding, get_clean_savepath_from_url,
     EmbeddingRequestData
 )
+from base_data_structure import ComponentData
 
 class ProcessedComponent:
     def __init__(self, original_component) -> None:
         self.component_uuid: str = "" # unique id for calculating retrieval score (ex: mmqa cid)
         self.doc_title: str = ""
-        self.original_component = original_component
+        self.original_component: ComponentData = original_component
         self.component_embedding: np.ndarray = np.array([])
         self.subcomponent_embeddings: tp.List[np.ndarray] = [] # list(subcomp embed vector)
         self.neighbor_components: tp.List[str] = [] # list(doc title)

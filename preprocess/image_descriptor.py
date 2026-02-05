@@ -20,29 +20,28 @@ from ultralytics import YOLO
 
 from query import IMAGE_OCR_QUERY, EXPLANATION_INSTRUCTION
 from utils import get_llm_response, get_clean_savepath
-from config import QWEN_SERVER_URL_LIST
 
 
 class SequentialImageNormalizer: # resize + mapping
     def __init__(
         self,
-        original_image_folderpath: str,
+        crawled_image_folderpath: str,
         processed_image_folderpath: str
     ):
-        self.original_image_folderpath: str = original_image_folderpath
+        self.crawled_image_folderpath: str = crawled_image_folderpath
         self.processed_image_folderpath: str = processed_image_folderpath
         
-        self.original_image_pathlist: tp.List[str] = []
+        self.crawled_image_filepath_list: tp.List[str] = []
         
         self.progress_bar = tqdm(total=0, desc="Image Preprocessing...")
     
     def load_image_filelist(self) -> bool:
-        assert os.path.exists(self.original_image_folderpath)
+        assert os.path.exists(self.crawled_image_folderpath)
 
-        self.original_image_pathlist = []
-        for filename in os.listdir(self.original_image_folderpath):
-            image_filepath = os.path.join(self.original_image_folderpath, filename)
-            self.original_image_pathlist.append(image_filepath)
+        self.crawled_image_filepath_list = []
+        for filename in os.listdir(self.crawled_image_folderpath):
+            crawled_image_filepath = os.path.join(self.crawled_image_folderpath, filename)
+            self.crawled_image_filepath_list.append(crawled_image_filepath)
 
         return True
 
@@ -78,11 +77,11 @@ class SequentialImageNormalizer: # resize + mapping
             tqdm.write(f"Error loading {original_image_path}: {e}")
             return None
 
-    def run(self, failed_file_path: str) -> bool:
-        self.progress_bar.total = len(self.original_image_pathlist)
+    def run_normalize(self, failed_file_path: str) -> bool:
+        self.progress_bar.total = len(self.crawled_image_filepath_list)
         
         with open(failed_file_path, 'w', encoding='utf-8') as failed_file:
-            for original_image_path in self.original_image_pathlist:
+            for original_image_path in self.crawled_image_filepath_list:
                 original_filename, file_ext = os.path.splitext(os.path.basename(original_image_path))
                 clean_savepath = get_clean_savepath(self.processed_image_folderpath, original_filename, "png")
                 if os.path.exists(clean_savepath):
@@ -94,66 +93,6 @@ class SequentialImageNormalizer: # resize + mapping
                 except Exception as e:
                     tqdm.write(f"Error processing {original_image_path}: {e}")
                     failed_file.write(f"{original_image_path}\n")
-                finally:
-                    self.progress_bar.update(1)
-
-        return True
-
-class SequentialImageDescriptor: # OCR, Explanation
-    def __init__(self, image_folder_path: str):
-        self.image_folder_path: str = image_folder_path
-        self.image_filepath_list: tp.List[str] = []
-        
-        self.progress_bar = tqdm(total=0, desc="Image Descripting...")
-    
-    def load_image_filelist(self) -> bool:
-        assert os.path.exists(self.image_folder_path)
-
-        self.image_filepath_list = []
-        for filename in os.listdir(self.image_folder_path):
-            image_filepath = os.path.join(self.image_folder_path, filename)
-            self.image_filepath_list.append(image_filepath)
-        
-        self.image_filepath_list.sort()
-
-        return True
-
-    def run(self, failed_file_path: str, description_file_path: str) -> bool:
-        processed_paths = set()
-        if os.path.exists(description_file_path):
-            with open(description_file_path, 'r', encoding='utf-8') as f:
-                for line in f:
-                    try:
-                        data = json.loads(line)
-                        if "file_path" in data:
-                            processed_paths.add(data["file_path"])
-                    except json.JSONDecodeError:
-                        continue
-            tqdm.write(f"Found {len(processed_paths)} processed data. Will automatically skip while process.")
-
-        self.progress_bar.total = len(self.image_filepath_list)
-        
-        with open(description_file_path, 'a', encoding='utf-8') as f_success, \
-            open(failed_file_path, 'a', encoding='utf-8') as f_fail:
-            
-            for image_path in self.image_filepath_list:
-                if image_path in processed_paths:
-                    self.progress_bar.update(1)
-                    continue
-                try:
-                    explanation_text = get_llm_response(QWEN_SERVER_URL_LIST[0], EXPLANATION_INSTRUCTION, [image_path])
-                    ocr_text = get_llm_response(QWEN_SERVER_URL_LIST[0], IMAGE_OCR_QUERY, [image_path])
-                    success_data = {
-                        "file_path": image_path,
-                        "explanation": explanation_text,
-                        "ocr": ocr_text
-                    }
-                    f_success.write(json.dumps(success_data, ensure_ascii=False) + '\n')
-                    f_success.flush()
-                except Exception as e:
-                    tqdm.write(f"Error processing {image_path}: {e}")
-                    f_fail.write(f"{image_path}\n")
-                    f_fail.flush()
                 finally:
                     self.progress_bar.update(1)
 
@@ -188,7 +127,7 @@ class BatchImageDescriptor: # OCR, Explanation
             "ocr": ocr_text,
         }
 
-    def run(self, failed_file_path: str, description_file_path: str, llm_server_list: tp.List[str]) -> bool:
+    def run_description(self, failed_file_path: str, description_file_path: str, llm_server_list: tp.List[str]) -> bool:
         processed_paths = set()
         if os.path.exists(description_file_path):
             with open(description_file_path, 'r', encoding='utf-8') as f:
@@ -264,7 +203,7 @@ class BatchObjectDetector:
         self.image_filepath_list = [os.path.join(self.image_folder_path, f) for f in os.listdir(self.image_folder_path)]
         self.image_filepath_list.sort()
 
-    def run(
+    def run_detection(
         self,
         failed_file_path: str,
         output_json_path: str,
@@ -290,7 +229,7 @@ class BatchObjectDetector:
             if not images:
                 continue
 
-            batch_outputs = self.detect_batch(images)
+            batch_outputs = self.batch_detect(images)
             self.progress_bar.update(len(valid_paths))
 
             for path, dets in zip(valid_paths, batch_outputs):
@@ -304,7 +243,7 @@ class BatchObjectDetector:
                 failed_file.write(path + "\n")
 
     @torch.inference_mode()
-    def detect_batch(
+    def batch_detect(
         self,
         images: tp.List[np.ndarray],
     ) -> tp.List[tp.List[tp.List[int]]]:
@@ -335,7 +274,7 @@ class BatchObjectDetector:
 
         return outputs
 
-class BatchImageEmbedder:
+class BatchImageRemapEmbedder:
     def __init__(
         self,
         image_file_list: tp.List[str],
@@ -343,8 +282,8 @@ class BatchImageEmbedder:
         image_size: int = 512,
     ):
         assert torch.cuda.is_available()
+        
         MODEL_NAME: str = "facebook/dinov2-base"
-
         self.device = device
 
         self.processor = AutoImageProcessor.from_pretrained(
@@ -358,7 +297,7 @@ class BatchImageEmbedder:
         self.image_filepath_list: tp.List[str] = image_file_list
         self.progress_bar = tqdm(total=0, desc="Batch Image Embedding...")
 
-    def run(
+    def run_embedding(
         self,
         failed_file_path: str,
         output_pt_path: str,
@@ -384,7 +323,7 @@ class BatchImageEmbedder:
             if not images:
                 continue
 
-            batch_outputs = self.embed_batch(images)
+            batch_outputs = self.batch_embed(images)
             self.progress_bar.update(len(valid_paths))
 
             for path, emb in zip(valid_paths, batch_outputs):
@@ -397,7 +336,7 @@ class BatchImageEmbedder:
                 failed_file.write(path + "\n")
 
     @torch.inference_mode()
-    def embed_batch(
+    def batch_embed(
         self,
         images: tp.List[np.ndarray],
     ) -> torch.Tensor:
