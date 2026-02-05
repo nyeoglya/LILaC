@@ -148,7 +148,7 @@ class BatchImageDescriptor: # OCR, Explanation
 
         with open(description_file_path, 'a', encoding='utf-8') as f_success, \
             open(failed_file_path, 'a', encoding='utf-8') as f_fail, \
-            ThreadPoolExecutor(max_workers=3) as executor:
+            ThreadPoolExecutor(max_workers=len(llm_server_list)) as executor:
 
             future_to_path = {
                 executor.submit(
@@ -236,7 +236,7 @@ class BatchObjectDetector:
                 results[path] = dets
 
         with open(output_json_path, "w", encoding="utf-8") as output_file:
-            json.dump(results, output_file, indent=2, ensure_ascii=False)
+            json.dump(results, output_file, ensure_ascii=False)
 
         with open(failed_file_path, "w", encoding="utf-8") as failed_file:
             for path in failed_files:

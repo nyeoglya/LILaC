@@ -1,8 +1,6 @@
 import typing as tp
 from dataclasses import dataclass, field, asdict
 
-from bs4 import Tag
-
 @dataclass
 class ComponentData:
     heading_path: tp.List[str] = field(default_factory=list)
@@ -48,11 +46,11 @@ class BasePage:
     def run_parse(self) -> bool:
         return False
     
-    def parse_figure(self, data: Tag) -> tp.Union[ImageComponent, None]:
+    def parse_figure(self, data) -> tp.Union[ImageComponent, None]:
         return None
     
-    def parse_paragraph(self, data: Tag) -> tp.Union[ParagraphComponent, None]:
+    def parse_paragraph(self, data) -> tp.Union[ParagraphComponent, None]:
         return None
     
-    def parse_table(self, data: Tag) -> tp.Union[TableComponent, None]:
+    def parse_table(self, data) -> tp.Union[TableComponent, None]:
         return None

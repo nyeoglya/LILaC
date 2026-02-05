@@ -1,20 +1,13 @@
-1. serialize
-- table serialize (image with metadata)
-- image serialize
-
-2. embedding component
-- check performance
-
-3. embedding subcomponent
+embedding => In progress
 
 
+1. doc embedding remapping
+- Image Remapping
+- Recall for text & table
 
-4. doc embedding mapping
-- component remapping -> Recall for text & table
+2. reconstruct lilac graph
 
-5. reconstruct graph
-
-6. graph traversal
+3. graph traversal
 - reimplement beam
 
-7. performance metric
+4. performance metric (f1 score, recall@9, exact matching) on retrieval.

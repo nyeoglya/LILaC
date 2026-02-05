@@ -11,9 +11,16 @@ import numpy as np
 
 import pysbd
 
-from config import MMEMBED_SERVER_URL_LIST
+from config import (
+    MMEMBED_SERVER_URL_LIST,
+    MMQA_PARSE_JSON_FOLDER,
+    MMQA_LDOC_FOLDER,
+    MMQA_IMAGE_DESCRIPTION_INFO_FILE,
+    MMQA_OBJECT_DETECT_INFO_FILE,
+    MMQA_PROCESS_IMAGE_FOLDER
+)
 from utils import (
-    get_embedding, get_clean_savepath_from_url,
+    get_embedding, get_clean_filename_from_url, get_clean_savepath,
     EmbeddingRequestData
 )
 from base_data_structure import ComponentData
@@ -42,6 +49,15 @@ class LILaCDocument:
         self.original_json_data: tp.Dict = dict()
         
         self.processed_components: tp.List[ProcessedComponent] = []
+
+    def __getstate__(self):
+        state = self.__dict__.copy()
+        state["image_metadata_map"] = None
+        state["text_segmenter"] = None
+        return state
+
+    def __setstate__(self, state):
+        self.__dict__.update(state)
 
     def save_to_path(self, save_filepath: str) -> bool:
         try:
@@ -109,7 +125,8 @@ class LILaCDocument:
 
         result_component = ProcessedComponent(component)
         result_component.neighbor_components = component["edge"]
-        result_component.component_embedding = get_embedding(MMEMBED_SERVER_URL_LIST[0], EmbeddingRequestData(serialized_text_prefix + component['paragraph'].replace("\n","")))
+        serialized_text = serialized_text_prefix + component['paragraph']
+        result_component.component_embedding = get_embedding(MMEMBED_SERVER_URL_LIST[0], EmbeddingRequestData(serialized_text.replace("\n","")))
         result_component.subcomponent_embeddings = [get_embedding(MMEMBED_SERVER_URL_LIST[0], EmbeddingRequestData(serialized_text_prefix + sentence.replace("\n",""))) for sentence in sentence_list]
         
         return result_component
@@ -122,53 +139,57 @@ class LILaCDocument:
         subcomponent_embeddings: tp.List[np.ndarray] = []
         
         if len(original_table) <= 2:
-            text, img_paths = self._flatten_table(original_table)
-            subcomponent_embeddings = [get_embedding(MMEMBED_SERVER_URL_LIST[0], EmbeddingRequestData(serialized_text_prefix + text, img_paths[0] if img_paths else ""))]
+            text, image_filepath_list = self._flatten_table(original_table)
+            serialized_text = serialized_text_prefix + text
+            subcomponent_embeddings = [get_embedding(MMEMBED_SERVER_URL_LIST[0], EmbeddingRequestData(serialized_text.replace("\n", ""), image_filepath_list[0] if image_filepath_list else ""))]
         else:
             for table_line in original_table[1:]:
-                text, img_paths = self._flatten_table([table_first_row, table_line])
-                subcomponent_embeddings.append(get_embedding(MMEMBED_SERVER_URL_LIST[0], EmbeddingRequestData(serialized_text_prefix + text, img_paths[0] if img_paths else "")))
+                text, image_filepath_list = self._flatten_table([table_first_row, table_line])
+                serialized_text = serialized_text_prefix + text
+                subcomponent_embeddings.append(get_embedding(MMEMBED_SERVER_URL_LIST[0], EmbeddingRequestData(serialized_text.replace("\n", ""), image_filepath_list[0] if image_filepath_list else "")))
         
         result_component = ProcessedComponent(component)
         result_component.neighbor_components = component["edge"]
         result_component.subcomponent_embeddings = subcomponent_embeddings
-        result_component.component_embedding = np.mean(np.stack(subcomponent_embeddings, axis=0), axis=0) # TODO
+        full_text, full_img_filepath_list = self._flatten_table(original_table)
+        result_component.component_embedding = get_embedding(MMEMBED_SERVER_URL_LIST[0], EmbeddingRequestData(full_text.replace("\n", ""), full_img_filepath_list[0] if full_img_filepath_list else "")) # np.mean(np.stack(subcomponent_embeddings, axis=0), axis=0) # TODO
         
         return result_component
     
     def process_image_component(self, component) -> tp.Optional[ProcessedComponent]:
-        clean_imagepath = get_clean_savepath_from_url(self.processed_image_folder, component["src"])
-        if not os.path.exists(clean_imagepath):
-            tqdm.write(f"Error: No {clean_imagepath} exists")
+        clean_imagename, _ = get_clean_filename_from_url(component["src"])
+        clean_png_image_filepath = get_clean_savepath(self.processed_image_folder, clean_imagename, "png")
+        if not os.path.exists(clean_png_image_filepath):
+            tqdm.write(f"Error: No {clean_png_image_filepath} exists")
             return None
         
-        image_metadata = self.image_metadata_map[self.doc_title]
+        image_metadata = self.image_metadata_map[clean_imagename + ".png"]
         serialized_text = f"{self.doc_title} [SEP] {' , '.join(component['heading_path'])} [SEP] {component['caption']}"
         serialized_text += f" [SEP] {image_metadata['explanation']}" if image_metadata["explanation"] else ""
         serialized_text += f" [SEP] {image_metadata['ocr']}" if image_metadata["ocr"] else ""
         
         result_component = ProcessedComponent(component)
         result_component.neighbor_components = component["edge"]
-        result_component.component_embedding = get_embedding(MMEMBED_SERVER_URL_LIST[0], EmbeddingRequestData(serialized_text, clean_imagepath))
         
-        image_boundbox_list = image_metadata["bboxes"]
-        if not image_boundbox_list:
+        result_component.component_embedding = get_embedding(MMEMBED_SERVER_URL_LIST[0], EmbeddingRequestData(serialized_text, clean_png_image_filepath))
+        if not image_metadata["bboxes"]:
             result_component.subcomponent_embeddings = [result_component.component_embedding]
-        else: # TODO
-            result_component.subcomponent_embeddings = ???
+        else:
+            for bounding_box in image_metadata["bboxes"]:
+                result_component.subcomponent_embeddings.append(get_embedding(MMEMBED_SERVER_URL_LIST[0], EmbeddingRequestData(serialized_text, clean_png_image_filepath, bounding_box)))
         
         return result_component
 
     def _flatten_table(self, table_data: tp.List) -> tp.Tuple[str, tp.List[str]]:
         image_link_pattern = r"\[\[([^\]]+)\]\]"
-        image_name_list: tp.List[str] = []
+        image_url_list: tp.List[str] = []
         result_text_list: tp.List[str] = []
 
         for table_row in table_data:
             temp_list = []
             for table_elem in table_row:
                 element_img_list = [item for item in re.findall(image_link_pattern, table_elem)]
-                image_name_list.extend(element_img_list)
+                image_url_list.extend(element_img_list)
                 text = re.sub(image_link_pattern, '', table_elem).strip()
                 if text:
                     temp_list.append(text)
@@ -176,11 +197,14 @@ class LILaCDocument:
         result_text = " [SEP] ".join(result_text_list)
         
         clean_imagename_list = []
-        for image_name in image_name_list:
-            clean_imagepath = get_clean_savepath_from_url(self.processed_image_folder, image_name)
-            if os.path.exists(clean_imagepath): # TODO: image processing
-                clean_imagename_list.append(image_name)
-        
+        ind = 1
+        for image_url in image_url_list:
+            clean_imagename, _ = get_clean_filename_from_url(image_url)
+            clean_png_imagepath = get_clean_savepath(self.processed_image_folder, clean_imagename, "png")
+            if os.path.exists(clean_png_imagepath):
+                clean_imagename_list.append(clean_imagename)
+                result_text += f" [SEP] <Image {ind}> {clean_imagename} {self.image_metadata_map[clean_imagename+'.png']['explanation']}"
+                ind += 1
         return result_text, clean_imagename_list
 
 class SequentialDataEmbedder:
@@ -218,7 +242,7 @@ class SequentialDataEmbedder:
         with open(self.image_description_filepath, "r", encoding="utf-8") as image_object_detection_file:
             for image_description_line in image_object_detection_file:
                 image_description = json.loads(image_description_line)
-                self.image_metadata_map[image_description["file_path"]] = {
+                self.image_metadata_map[image_description["image"]] = { # TODO: file_path 출력 고치기
                     "explanation": image_description["explanation"],
                     "ocr": clean_ocr_text(image_description["ocr"]),
                     "bboxes": []
@@ -231,6 +255,7 @@ class SequentialDataEmbedder:
                     self.image_metadata_map[image_object_detection["image"]]["bboxes"] = image_object_detection["bboxes"]
                 else:
                     tqdm.write(f"ERROR: not found object detection data of {image_object_detection['image']}")
+    
     
     def load_ldoc(self) -> bool:
         assert os.path.exists(self.ldoc_folderpath)
@@ -258,7 +283,7 @@ class SequentialDataEmbedder:
 
         return True
 
-    def run(self) -> bool:
+    def run_embedding(self) -> bool:
         self.progress_bar.total = len(self.json_path_list)
         
         for json_path in self.json_path_list:
@@ -275,8 +300,51 @@ class SequentialDataEmbedder:
                 self.lilac_doc_dict[new_ldoc.doc_title] = new_ldoc
                 self.progress_bar.update(1)
             except Exception as e:
-                tqdm.write(f"Skip document {new_ldoc.doc_title} as it failed: {e}")
+                print(f"Skip document {new_ldoc.doc_title} as it failed: {e}")
         return True
+    
+    '''
+    def process_single_json(self, json_path: str, llm_server: str) -> bool:
+        new_ldoc: LILaCDocument = LILaCDocument(self.segmenter, self.image_metadata_map, self.processed_image_folderpath)
+        new_ldoc.load_json(json_path)
+        new_ldoc_filepath = os.path.join(self.ldoc_folderpath, f"{new_ldoc.doc_title}.ldoc")
+        if os.path.exists(new_ldoc_filepath):
+            tqdm.write(f"Skip document {new_ldoc.doc_title} as it is already parsed.")
+            return True
+            
+        try:
+            new_ldoc.run_embedding()
+            new_ldoc.save_to_path(new_ldoc_filepath)
+            self.lilac_doc_dict[new_ldoc.doc_title] = new_ldoc
+            return True
+        except Exception as e:
+            print(f"Skip document {new_ldoc.doc_title} as it failed: {e}")
+            return False
+    
+    def run_batch_embedding(self, failed_file_path: str, embed_server_list: tp.List[str]) -> bool:
+        assert os.path.exists(self.json_folderpath)
+        assert os.path.exists(self.ldoc_folderpath)
+        
+        self.progress_bar.total = len(self.json_path_list)
+        server_cycle = itertools.cycle(embed_server_list)
+
+        with open(failed_file_path, 'a', encoding='utf-8') as failed_file, \
+            ThreadPoolExecutor(max_workers=len(embed_server_list)) as executor:
+
+            future_to_path = {
+                executor.submit(
+                    self.process_single_json,
+                    image_path,
+                    next(server_cycle)
+                ): image_path
+                for image_path in self.json_path_list
+            }
+
+            for _ in as_completed(future_to_path):
+                self.progress_bar.update(1)
+
+        return True
+    '''
 
 class LILaCDocMMQAMapper:
     def __init__(
@@ -319,30 +387,15 @@ class LILaCDocMMQAMapper:
         return recall
 
 if __name__ == "__main__":
-    '''
-    sequential_data_embedder = SequentialDataEmbedder(PARSED_JSON_FOLDER, IMG_FOLDER, LDOC_FOLDER)
+    sequential_data_embedder = SequentialDataEmbedder(
+        MMQA_PARSE_JSON_FOLDER,
+        MMQA_LDOC_FOLDER,
+        MMQA_IMAGE_DESCRIPTION_INFO_FILE,
+        MMQA_OBJECT_DETECT_INFO_FILE,
+        MMQA_PROCESS_IMAGE_FOLDER
+    )
     sequential_data_embedder.load_json_filelist()
-    sequential_data_embedder.run()
-    '''
+    sequential_data_embedder.run_embedding()
+    # sequential_data_embedder.edge_remapping()
     
-    ldoc = LILaCDocument.load_from_path('/dataset/process/mmqa_ldoc/Tell_Me_That_You_Love_Me,_Junie_Moon.ldoc')
-    
-    '''
-    sequential_data_embedder.edge_remapping()
-    
-    lilac_doc: LILaCDocument = LILaCDocument.load('/dataset/process/mmqa/Tell_Me_That_You_Love_Me,_Junie_Moon.ldoc')
-    embeds = lilac_doc.processed_components[0].subcomponent_embeddings
-    
-    from query import get_subembeddings
-    subembeddings = get_subembeddings("Which film did Ben Piazza appear in first: \"Nightwing\" or the movie that shows half of a woman's face on the poster?")
-    
-    emmm = get_embedding(EmbeddingRequestData("Original Poster by Saul Bass", "/dataset/crawl/mmqa_image/Tell_Me_That_You_Love_Me,_Junie_Moon_poster.jpg"))
-    
-    sim1 = subembeddings @ np.array(embeds).T # (Q, D) @ (D, M)
-    print(sim1)
-    print(np.argmax(sim1, axis=1))
-    print(subembeddings @ emmm.T)
-    print(np.max(sim1, axis=1))
-    
-    print(lilac_doc.processed_components[0].original_component)
-    '''
+    # ldoc = LILaCDocument.load_from_path('/dataset/process/mmqa_ldoc/Claire_Coffee.ldoc')

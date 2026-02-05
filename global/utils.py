@@ -2,25 +2,33 @@ import os
 import requests
 import urllib.parse
 import typing as tp
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import numpy as np
 
 
 def get_clean_savepath_from_url(image_save_folder_path: str, original_url: str) -> str:
+    name_without_ext, extension = get_clean_filename_from_url(original_url)
+    extension = extension.replace(".","")
+    if not extension:
+        extension: str = "png"
+    return get_clean_savepath(image_save_folder_path, name_without_ext, extension)
+
+def get_clean_filename_from_url(original_url: str) -> tp.Tuple[str, str]:
     url_path: str = original_url.split('?')[0]
     raw_filename: str = url_path.split('/')[-1]
     decoded_name: str = urllib.parse.unquote(raw_filename)
     name_without_ext, extension = os.path.splitext(decoded_name)
-    extension = extension.replace(".","")
-    if not extension:
-        extension: str = "jpg"
-    return get_clean_savepath(image_save_folder_path, name_without_ext, extension)
+    return get_clean_filename(name_without_ext), extension
 
 def get_clean_savepath(save_folderpath: str, filename: str, extension: str = "") -> str:
-    clean_file_name: str = "".join([c for c in filename if c.isalnum() or c in (' ', '_', '-')]).rstrip()
+    clean_file_name: str = get_clean_filename(filename)
     clean_file_path: str = os.path.join(save_folderpath, f"{clean_file_name}.{extension}")
     return clean_file_path
+
+def get_clean_filename(filename: str) -> str:
+    clean_file_name: str = "".join([c for c in filename if c.isalnum() or c in (' ', '_', '-')]).rstrip()
+    return clean_file_name
 
 def save_html_content_to_file(doc_html_clean_filepath: str, html_content: str):
     try:
@@ -45,6 +53,7 @@ def save_image_to_file(image_clean_filepath: str, image_content: bytes):
 class EmbeddingRequestData:
     text: str = ""
     img_path: str = ""
+    bounding_box: tp.Optional[tp.Tuple[int, int, int, int]] = None
 
 def get_query_embedding(server_url: str, instruction: str, text: str, img_path="") -> np.ndarray:
     payload = {
@@ -64,6 +73,7 @@ def get_embedding(server_url: str, reqeust_data: EmbeddingRequestData) -> np.nda
     payload = {
         "text": reqeust_data.text,
         "img_path": reqeust_data.img_path,
+        "bounding_box": reqeust_data.bounding_box,
     }
 
     r = requests.post(f"{server_url}/embed", json=payload, timeout=120)

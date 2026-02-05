@@ -2,6 +2,7 @@ from __future__ import annotations
 import threading
 
 from PIL import Image
+import cv2
 
 import torch
 from transformers import AutoModel
@@ -23,19 +24,31 @@ class MMEmbed:
     @torch.inference_mode()
     def embedding(self, gen_input: GenerationInput) -> torch.Tensor:
         with self._lock:
-            item = {}
+            new_item = {}
             if gen_input.text:
-                item["txt"] = gen_input.text
+                new_item["txt"] = gen_input.text
             if gen_input.img_path and gen_input.img_path.lower().endswith('.png'):
-                item["img"] = Image.open(gen_input.img_path).convert("RGB")
+                if gen_input.bounding_box:
+                    original_image = cv2.imread(gen_input.img_path)
+                    h, w = original_image.shape[:2]
+                    x1, y1, x2, y2 = map(int, gen_input.bounding_box)
+                    x1 = max(0, min(x1, w - 1))
+                    y1 = max(0, min(y1, h - 1))
+                    x2 = max(0, min(x2, w))
+                    y2 = max(0, min(y2, h))
+                    if x2 <= x1 or y2 <= y1:
+                        raise ValueError("Invalid bounding box")
+                    new_item["img"] = cv2.cvtColor(original_image[y1:y2, x1:x2], cv2.COLOR_BGR2RGB)
+                else:
+                    new_item["img"] = Image.open(gen_input.img_path).convert("RGB")
             
             outputs = self.model.encode(
-                [item],
+                [new_item],
                 is_query=False,
                 max_length=512,
             )
 
-            return outputs["hidden_states"].cpu()
+            return outputs["hidden_states"][0].cpu()
     
     @torch.inference_mode()
     def query_embedding(self, query_gen_input: QueryGenerationInput) -> torch.Tensor:

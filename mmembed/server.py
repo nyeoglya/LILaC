@@ -6,14 +6,14 @@ import uvicorn
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
-
+    
 from utils import GenerationInput, QueryGenerationInput
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     try:
         from model import MMEmbed
-        app.state.model = MMEmbed(device="cuda:1")
+        app.state.model = MMEmbed(device="cuda:2")
     except Exception as e:
         raise RuntimeError(f"Model load failed: {e}")
 
@@ -31,6 +31,7 @@ app.state.sem = asyncio.Semaphore(1)
 class EmbeddingRequest(BaseModel):
     text: str = ""
     img_path: str = ""
+    bounding_box: tp.Optional[tp.Tuple[int, int, int, int]] = None
 
 class QueryEmbeddingRequest(BaseModel):
     instruction: str = ""
@@ -48,6 +49,7 @@ async def embed(request: EmbeddingRequest):
     gen_input = GenerationInput(
         text=request.text,
         img_path=request.img_path,
+        bounding_box=request.bounding_box,
     )
 
     try:
@@ -56,8 +58,10 @@ async def embed(request: EmbeddingRequest):
                 app.state.model.embedding,
                 gen_input,
             )
-        vec = emb.squeeze(0).tolist()
+
+        vec = emb.tolist()
         return EmbeddingResponse(embedding=vec)
+
     except Exception as e:
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
