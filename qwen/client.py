@@ -1,6 +1,6 @@
 import requests
 
-SERVER_URL = "http://localhost:8003"
+SERVER_URL = "http://localhost:8000"
 
 def test_single():
     payload = {

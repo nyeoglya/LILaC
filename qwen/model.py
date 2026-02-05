@@ -1,5 +1,4 @@
 from __future__ import annotations
-import os
 import typing as tp
 import threading
 
@@ -7,23 +6,6 @@ import torch
 from transformers import AutoModelForImageTextToText, AutoProcessor
 
 from utils import GenerationInput, GenerationOutput
-
-import cairosvg
-
-def load_img(img_path: str) -> str:
-    if not img_path.endswith('.svg'):
-        return img_path
-    
-    target_path = f"{img_path}.png"
-    if os.path.exists(target_path):
-        return target_path
-    
-    try:
-        print(f"[Qwen3_VL] SVG-to-PNG Module: Converting {img_path}...")
-        cairosvg.svg2png(url=img_path, write_to=target_path)
-        return target_path
-    except Exception as e:
-        return img_path
 
 class Qwen3_VL:
     def __init__(self, device: str):
@@ -63,10 +45,10 @@ class Qwen3_VL:
             # build messages
             batch_messages = []
             for inp in batch_inputs:
-                user_content = [{"type": "image", "image": load_img(img_path)} for img_path in inp.img_paths]
+                user_content = [{"type": "image", "image": img_path} for img_path in inp.img_paths]
                 user_content.append({"type": "text", "text": inp.text})
                 messages = [
-                    {"role": "system", "content": inp.instruction},
+                    {"role": "system", "content": ""},
                     {"role": "user", "content": user_content},
                 ]
                 batch_messages.append(messages)

@@ -1,27 +1,20 @@
-2. image labeling => processing
-- qwen3-VL
+1. serialize
+- table serialize (image with metadata)
+- image serialize
 
-3. image object detection
-- YOLO-v8 X
-
-4. doc embedding mapping
-- doc load
-- component remapping -> DINOv2 for image, Recall for text & table
-- ddd
-
-4. table serialize
-- image metadata
-
-5. image serialize
-
-6. embedding component
+2. embedding component
 - check performance
 
-7. embedding subcomponent
+3. embedding subcomponent
 
-8. reconstruct graph
 
-9. graph traversal
+
+4. doc embedding mapping
+- component remapping -> Recall for text & table
+
+5. reconstruct graph
+
+6. graph traversal
 - reimplement beam
 
-10. performance metric
+7. performance metric

@@ -10,6 +10,7 @@ services:
     volumes:
       - ./preprocess:/app
       - ./dataset:/dataset
+      - ./global:/shared:ro
     deploy:
       resources:
         reservations:
@@ -21,6 +22,7 @@ services:
     environment:
       - PYTHONUNBUFFERED=1
       - CUDA_VISIBLE_DEVICES=0
+      - PYTHONPATH=/shared:/shared
     tty: true
     stdin_open: true
   graph:
@@ -34,6 +36,9 @@ services:
     volumes:
       - ./graph:/app
       - ./dataset:/dataset
+      - ./global:/shared:ro
+    environment:
+      - PYTHONPATH=/shared:/shared
     tty: true
     stdin_open: true
   mmembed:
@@ -49,11 +54,13 @@ services:
       - ./mmembed:/app
       - ./mmembed/hf_models:/root/.cache/huggingface
       - ./dataset:/dataset
+      - ./global:/shared:ro
     environment:
       - MODEL_PATH=nvidia/MM-Embed
       - HF_HOME=/root/.cache/huggingface
       - NVIDIA_VISIBLE_DEVICES=all
       - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+      - PYTHONPATH=/shared:/shared
     deploy:
       resources:
         reservations:
@@ -76,11 +83,13 @@ services:
       - ./qwen:/app
       - ./qwen/hf_models:/root/.cache/huggingface
       - ./dataset:/dataset
+      - ./global:/shared:ro
     environment:
       - MODEL_PATH=Qwen/Qwen3-VL-8B-Instruct
       - HF_HOME=/root/.cache/huggingface
       - NVIDIA_VISIBLE_DEVICES=all
       - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+      - PYTHONPATH=/shared:/shared
     deploy:
       resources:
         reservations:
@@ -94,5 +103,3 @@ services:
 networks:
   network:
     driver: bridge
-    name: lilac-network
-    external: true

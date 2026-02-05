@@ -1,7 +1,7 @@
 import requests
 import numpy as np
 
-SERVER_URL = "http://localhost:8002"
+SERVER_URL = "http://localhost:8000"
 
 def test_single():
     payload = {

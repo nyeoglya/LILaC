@@ -14,10 +14,13 @@ from tqdm import tqdm
 
 import numpy as np
 import torch
+import torch.nn.functional as F
+from transformers import AutoImageProcessor, AutoModel
 from ultralytics import YOLO
 
 from query import IMAGE_OCR_QUERY, EXPLANATION_INSTRUCTION
 from utils import get_llm_response, get_clean_savepath
+from config import QWEN_SERVER_URL_LIST
 
 
 class SequentialImageNormalizer: # resize + mapping
@@ -62,6 +65,9 @@ class SequentialImageNormalizer: # resize + mapping
             file_ext = file_ext.lower().replace('.', '')
             if file_ext == 'svg':
                 png_data = cairosvg.svg2png(url=original_image_path, output_width=1024, output_height=1024)
+                if png_data is None:
+                    tqdm.write(f"Failed to convert SVG to PNG {original_image_path}")
+                    return None
                 new_image = Image.open(io.BytesIO(png_data)).convert("RGB")
             else:
                 new_image = Image.open(original_image_path).convert("RGB")
@@ -93,7 +99,7 @@ class SequentialImageNormalizer: # resize + mapping
 
         return True
 
-class SequentialImageDescriptor:
+class SequentialImageDescriptor: # OCR, Explanation
     def __init__(self, image_folder_path: str):
         self.image_folder_path: str = image_folder_path
         self.image_filepath_list: tp.List[str] = []
@@ -135,8 +141,8 @@ class SequentialImageDescriptor:
                     self.progress_bar.update(1)
                     continue
                 try:
-                    explanation_text = get_llm_response(EXPLANATION_INSTRUCTION, [image_path])
-                    ocr_text = get_llm_response(IMAGE_OCR_QUERY, [image_path])
+                    explanation_text = get_llm_response(QWEN_SERVER_URL_LIST[0], EXPLANATION_INSTRUCTION, [image_path])
+                    ocr_text = get_llm_response(QWEN_SERVER_URL_LIST[0], IMAGE_OCR_QUERY, [image_path])
                     success_data = {
                         "file_path": image_path,
                         "explanation": explanation_text,
@@ -158,7 +164,7 @@ class BatchImageDescriptor: # OCR, Explanation
         self.image_folder_path: str = image_folder_path
         self.image_filepath_list: tp.List[str] = []
         
-        self.progress_bar = tqdm(total=0, desc="Image Descripting...")
+        self.progress_bar = tqdm(total=0, desc="Batch Image Descripting...")
     
     def load_image_filelist(self) -> bool:
         assert os.path.exists(self.image_folder_path)
@@ -173,12 +179,8 @@ class BatchImageDescriptor: # OCR, Explanation
         return True
 
     def process_single_image(self, image_path: str, server_url: str):
-        explanation_text = get_llm_response(
-            EXPLANATION_INSTRUCTION, [image_path], server_url
-        )
-        ocr_text = get_llm_response(
-            IMAGE_OCR_QUERY, [image_path], server_url
-        )
+        explanation_text = get_llm_response(server_url, EXPLANATION_INSTRUCTION, [image_path])
+        ocr_text = get_llm_response(server_url, IMAGE_OCR_QUERY, [image_path])
 
         return {
             "file_path": image_path,
@@ -255,7 +257,7 @@ class BatchObjectDetector:
         self.model.fuse()
 
         self.image_filepath_list: tp.List[str] = []
-        self.progress_bar = tqdm(total=0, desc="Object Detecting...")
+        self.progress_bar = tqdm(total=0, desc="Batch Object Detecting...")
 
     def load_image_filelist(self) -> None:
         assert os.path.exists(self.image_folder_path)
@@ -267,7 +269,7 @@ class BatchObjectDetector:
         failed_file_path: str,
         output_json_path: str,
         batch_size: int = 32,
-    ) -> tp.Dict[str, tp.List[tp.List[int]]]:
+    ):
         self.progress_bar.total = len(self.image_filepath_list)
         
         results = {}
@@ -333,7 +335,82 @@ class BatchObjectDetector:
 
         return outputs
 
+class BatchImageEmbedder:
+    def __init__(
+        self,
+        image_file_list: tp.List[str],
+        device: str = "cuda",
+        image_size: int = 512,
+    ):
+        assert torch.cuda.is_available()
+        MODEL_NAME: str = "facebook/dinov2-base"
 
-if __name__ == "__main__":
-    object_detector = BatchObjectDetector()
-    print(object_detector.detect_batch([cv2.imread("/dataset/crawl/mmqa_image/00-02_Saturn_SL_2.jpg")]))
+        self.device = device
+
+        self.processor = AutoImageProcessor.from_pretrained(
+            MODEL_NAME,
+            size={"shortest_edge": image_size},
+            do_center_crop=True,
+        )
+        self.model = AutoModel.from_pretrained(MODEL_NAME).to(device)
+        self.model.eval()
+    
+        self.image_filepath_list: tp.List[str] = image_file_list
+        self.progress_bar = tqdm(total=0, desc="Batch Image Embedding...")
+
+    def run(
+        self,
+        failed_file_path: str,
+        output_pt_path: str,
+        batch_size: int = 16,
+    ):
+        self.progress_bar.total = len(self.image_filepath_list)
+        
+        results = {}
+        failed_files = []
+        for i in range(0, len(self.image_filepath_list), batch_size):
+            batch_paths = self.image_filepath_list[i : i + batch_size]
+
+            images = []
+            valid_paths = []
+            for p in batch_paths:
+                img = cv2.imread(p)
+                if img is None:
+                    self.progress_bar.update(1)
+                    failed_files.append(p)
+                    continue
+                images.append(img)
+                valid_paths.append(p)
+            if not images:
+                continue
+
+            batch_outputs = self.embed_batch(images)
+            self.progress_bar.update(len(valid_paths))
+
+            for path, emb in zip(valid_paths, batch_outputs):
+                results[path] = emb
+
+        torch.save(results, output_pt_path)
+
+        with open(failed_file_path, "w", encoding="utf-8") as failed_file:
+            for path in failed_files:
+                failed_file.write(path + "\n")
+
+    @torch.inference_mode()
+    def embed_batch(
+        self,
+        images: tp.List[np.ndarray],
+    ) -> torch.Tensor:
+        images_rgb = [cv2.cvtColor(img, cv2.COLOR_BGR2RGB) for img in images]
+
+        inputs = self.processor(
+            images=images_rgb,
+            return_tensors="pt",
+        ).to(self.device)
+
+        outputs = self.model(**inputs)
+
+        cls_embeds = outputs.last_hidden_state[:, 0, :]
+        cls_embeds = F.normalize(cls_embeds.float(), dim=-1)
+
+        return cls_embeds.detach().cpu()

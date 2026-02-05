@@ -4,6 +4,8 @@ ARG DEBIAN_FRONTEND=noninteractive
 
 WORKDIR /app
 
+RUN mkdir -p /tmp && chmod 1777 /tmp
+
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libgl1-mesa-glx \
     libglib2.0-0 \
@@ -20,6 +22,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN pip install --no-cache-dir --upgrade pip
 
 RUN pip install --no-cache-dir \
+    transformers \
     ultralytics
 
 RUN pip install --no-cache-dir \

@@ -8,10 +8,13 @@ from lgraph import LILaCGraph, LILaCBeamV2
 from query import get_subembeddings, llm_question_query
 from eval.mmqa import mmqa_load
 from eval.utils import query_eval
+from config import (
+    QWEN_SERVER_URL_LIST,
+    MMQA_PROCESS_IMAGE_FOLDER, FINAL_RESULT_FILENAME, GRAPH_TEMP_FILE, LLM_TEMP_FILE
+)
 from utils import (
     get_embedding, get_llm_response,
-    EmbeddingRequestData,
-    IMG_FOLDER, FINAL_RESULT_FILENAME, GRAPH_TEMP_FILE, LLM_TEMP_FILE
+    EmbeddingRequestData
 )
 
 from dataclasses import asdict
@@ -170,7 +173,7 @@ def main(query_list: list[str], temp_graph_filepath: str, temp_llm_filepath: str
             
             try:
                 # 이 부분에 별도의 code_timer가 필요하다면 감쌀 수 있습니다.
-                llm_response = get_llm_response("", final_query, img_paths)
+                llm_response = get_llm_response(QWEN_SERVER_URL_LIST[0], final_query, img_paths)
             except Exception as e:
                 print(f"!!! Error at query {ind}: {e}")
                 llm_response = "ERROR: Generation Failed"
@@ -204,7 +207,7 @@ if __name__ == "__main__":
     print(f"+ Save result to {FINAL_RESULT_FILENAME}")
     
     from query import subquery_divide_query
-    sub_query_list = [get_llm_response("", subquery_divide_query(text)).replace("\n","").split(";") for text in query_list]
+    sub_query_list = [get_llm_response(QWEN_SERVER_URL_LIST[0], subquery_divide_query(text)).replace("\n","").split(";") for text in query_list]
     for i in range(len(query_answer_list)):
         print(f"Q: {query_list[i]}")
         print(f"Subqueries: {sub_query_list[i]}") # 분해된 결과 확인

@@ -2,7 +2,9 @@ import os
 import json
 import urllib.parse
 import typing as tp
+
 from utils_mmqa import mmqa_get_clean_wikidocs_titles
+from image_descriptor import BatchImageEmbedder
 
 def mmqa_find_component_from_file(mmqa_path: str) -> tp.Dict[str, tp.Dict[str, tp.List[str]]]:
     clean_titles: tp.List[str] = mmqa_get_clean_wikidocs_titles(mmqa_path)
@@ -42,5 +44,32 @@ def mmqa_find_component_from_file(mmqa_path: str) -> tp.Dict[str, tp.Dict[str, t
     print(f"Extract {len(result)} wiki titles with components")
     return result
 
+
+MMQA_REFERENCE_REMAP_EMBEDDING_PT = "/dataset/process/mmqa_reference_image_remap_embedding.pt"
+MMQA_REFERENCE_REMAP_EMBEDDING_FAILED_FILEPATH = "/dataset/process/mmqa_reference_image_remap_failed.txt"
+
+MMQA_IMAGE_REMAP_EMBEDDING_PT = "/dataset/process/mmqa_image_remap_embedding.pt"
+MMQA_IMAGE_REMAP_EMBEDDING_FAILED_FILEPATH = "/dataset/process/mmqa_image_remap_embedding_failed.txt"
+
 if __name__ == "__main__":
-    print(mmqa_find_component_from_file("/dataset/original/mmqa/"))
+    '''
+    mmqa_component_map = mmqa_find_component_from_file("/dataset/original/")
+    mmqa_imagepath_list = [datum for data in mmqa_component_map.values() for datum in data["imgid"]]
+    mmqa_fullimage_map = {}
+    for fname in os.listdir("/dataset/original/final_dataset_images/"):
+        stem, ext = os.path.splitext(fname)
+        if ext:
+            mmqa_fullimage_map[stem] = ext.lstrip(".")
+
+    result_list = []
+    for data in mmqa_imagepath_list:
+        if data in mmqa_fullimage_map:
+            result_list.append(f"/dataset/original/final_dataset_images/{data}.{mmqa_fullimage_map[data]}")
+
+    embedder = BatchImageEmbedder(result_list)
+    embedder.run(MMQA_REFERENCE_REMAP_EMBEDDING_FAILED_FILEPATH, MMQA_REFERENCE_REMAP_EMBEDDING_PT)
+    '''
+    
+    mmqa_imagepath_list = ["/dataset/process/mmqa_image/" + filename for filename in os.listdir("/dataset/process/mmqa_image")]
+    embedder = BatchImageEmbedder(mmqa_imagepath_list)
+    embedder.run(MMQA_IMAGE_REMAP_EMBEDDING_FAILED_FILEPATH, MMQA_IMAGE_REMAP_EMBEDDING_PT)

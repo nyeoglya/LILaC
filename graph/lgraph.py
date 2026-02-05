@@ -5,16 +5,17 @@ import typing as tp
 import numpy as np
 
 from processor import LILaCDocument
+from utils import get_embedding, EmbeddingRequestData
 
 class LILaCGraph:
     def __init__(self, filepath: str) -> None:
         self.filepath: str = filepath
         self.comp_map: tp.List[dict] = [] # comp id -> component
         self.comp_doc_map: tp.List[str] = [] # comp id -> doc title
-        self.comp_embedding_map: np.array = np.array([]) # comp id -> comp embedding
+        self.comp_embedding_map: np.ndarray = np.array([]) # comp id -> comp embedding
         
-        self.subcomp_embeddings_dump: np.array = np.array([]) # comp id -> array slicing(=subcomponent_embedding)
-        self.subcomp_range_map: np.array = np.array([]) # comp id -> (start, end) tuple
+        self.subcomp_embeddings_dump: np.ndarray = np.array([]) # comp id -> array slicing(=subcomponent_embedding)
+        self.subcomp_range_map: np.ndarray = np.array([]) # comp id -> (start, end) tuple
         self.edge: tp.List[tp.Set[int]] = [] # comp id -> set(comp id)
 
     # Manage Files
@@ -39,16 +40,11 @@ class LILaCGraph:
     
     @staticmethod
     def make_graph(remapped_ldoc_path: str, filepath: str) -> bool:
-        import os
-        import pickle
-        import numpy as np
+        assert os.path.exists(remapped_ldoc_path)
 
-        if not os.path.exists(remapped_ldoc_path):
-            return False
-
-        fnames = [f for f in os.listdir(remapped_ldoc_path) if f.endswith(".ldoc.remapped")]
-        ldocs = [LILaCDocument.load(os.path.join(remapped_ldoc_path, f)) for f in fnames]
-        ldocs = [doc for doc in ldocs if doc is not None]
+        fnames = [f for f in os.listdir(remapped_ldoc_path) if f.endswith(".ldoc")]
+        ldocs_with_none: tp.List[tp.Optional[LILaCDocument]] = [LILaCDocument.load_from_path(os.path.join(remapped_ldoc_path, f)) for f in fnames]
+        ldocs: tp.List[LILaCDocument] = [doc for doc in ldocs_with_none if doc is not None]
 
         # 컴포넌트 수집 및 정렬
         all_comps = []
@@ -110,13 +106,13 @@ class LILaCGraph:
 
         # Pickle 저장 최적화
         print(f"Saving to {filepath}...")
-        with open(filepath, "wb") as f:
+        with open(filepath, "wb") as f: # TODO: pickle 대신에 tensor pt 써보기
             pickle.dump(graph, f, protocol=pickle.HIGHEST_PROTOCOL) # HIGHEST_PROTOCOL: 4GB 이상의 대용량 객체 처리에 유용
 
         return True
 
 class LILaCBeam:
-    def __init__(self, lgraph: LILaCGraph, query_embedding: np.array, subquery_embeddings: np.array, beam_size: int = 5) -> None:
+    def __init__(self, lgraph: LILaCGraph, query_embedding: np.ndarray, subquery_embeddings: np.ndarray, beam_size: int = 5) -> None:
         assert subquery_embeddings.ndim == 2
         assert query_embedding.ndim == 1
         
@@ -215,7 +211,7 @@ class LILaCBeam:
         return result_docs
 
 class LILaCBeamV2:
-    def __init__(self, lgraph: 'LILaCGraph', query_embedding: np.array, subquery_embeddings: np.array, beam_size: int = 5) -> None:
+    def __init__(self, lgraph: 'LILaCGraph', query_embedding: np.ndarray, subquery_embeddings: np.ndarray, beam_size: int = 5) -> None:
         self.query_embedding = query_embedding
         self.subquery_embeddings = subquery_embeddings
         self.beam_size = beam_size
@@ -263,7 +259,7 @@ class LILaCBeamV2:
         self.beam = [(p, p) for p in seen_parents]
         return len(self.beam) > 0
 
-    def calculate_score(self, comp1: int, comp2: int = None) -> float:
+    def calculate_score(self, comp1: int, comp2: tp.Optional[int] = None) -> float:
         """논문 수식 (6)의 Late Interaction 스코어링입니다."""
         start1, end1 = self.lilac_graph.subcomp_range_map[comp1]
         emb1 = self.lilac_graph.subcomp_embeddings_dump[start1:end1]
@@ -359,7 +355,7 @@ class LILaCBeamV2:
         return [self.lilac_graph.comp_doc_map[nid] for nid in self.top_comp_ids(top_k)]
 
 if __name__ == "__main__":
-    LDOC_FOLDER = "/dataset/process/mmqa/"
+    LDOC_FOLDER = "/dataset/process/mmqa_ldoc/"
     GRAPH_FILE_PATH = "wiki.lgraph"
     
     LILaCGraph.make_graph(LDOC_FOLDER, GRAPH_FILE_PATH)
@@ -367,7 +363,6 @@ if __name__ == "__main__":
     lilac_graph.load()
     # print(sum([len(ii) for ii in lilac_graph.edge]))
 
-    from utils import get_embedding, EmbeddingRequestData
     for i in range(100):
         aaa = lilac_graph.comp_map[i]
         if not aaa["type"] == "paragraph":

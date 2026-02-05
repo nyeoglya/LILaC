@@ -1,19 +1,13 @@
-import numpy as np
 import typing as tp
+
+import numpy as np
 
 from utils import (
     get_clean_savepath_from_url, get_query_embedding, get_llm_response
 )
 
-def get_subembeddings(text, img_path="") -> np.ndarray:
-    query = subquery_divide_query(text)
-    subqueries = get_llm_response("", query).replace("\n","").split(";")
-    embeddings = []
-    for subquery in subqueries:
-        modality = get_llm_response("", subquery_modality_query(subquery))
-        result_embedding = get_query_embedding(modality, subquery, img_path)
-        embeddings.append(result_embedding)
-    return np.stack(embeddings)
+IMAGE_OCR_QUERY = "Extract all text from the image. Maintain the original structure. If no text is detected, return an empty string ('') only. No introduction or closing remarks."
+EXPLANATION_INSTRUCTION = "Provide a concise summary of this image in 2-3 sentences. Focus on the core subject, the setting, and the most striking visual element. Avoid filler words; be direct and precise."
 
 SUBQUERY_DIVIDE_QUERY = """Instruction: You are a retrieval-oriented query decomposer.
 
@@ -64,6 +58,16 @@ Using the images and texts given, answer the question below in a single word or 
 {retrieved_comp_text}
 Question: {question}
 Answer: """
+
+def get_subembeddings(server_url: str, query_text: str, image_filepath: str = "") -> np.ndarray:
+    query = subquery_divide_query(query_text)
+    subqueries = get_llm_response(server_url, query).replace("\n","").split(";")
+    embeddings = []
+    for subquery in subqueries:
+        modality = get_llm_response(server_url, subquery_modality_query(subquery))
+        result_embedding = get_query_embedding(modality, subquery, image_filepath)
+        embeddings.append(result_embedding)
+    return np.stack(embeddings)
 
 def subquery_divide_query(query: str) -> str:
     return SUBQUERY_DIVIDE_QUERY.format(query)

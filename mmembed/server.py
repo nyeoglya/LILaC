@@ -1,5 +1,6 @@
-import typing as tp
+import asyncio
 import traceback
+import typing as tp
 
 import uvicorn
 from contextlib import asynccontextmanager
@@ -8,23 +9,24 @@ from pydantic import BaseModel
 
 from utils import GenerationInput, QueryGenerationInput
 
-model = None
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global model
     try:
         from model import MMEmbed
-        model = MMEmbed(device="cuda:2")
+        app.state.model = MMEmbed(device="cuda:1")
     except Exception as e:
         raise RuntimeError(f"Model load failed: {e}")
 
     print("[Startup] Model ready.")
     yield
     print("[Shutdown] Cleaning up...")
-    model = None
+    app.state.model = None
 
-app = FastAPI(title="MM-Embed Inference Server", lifespan=lifespan)
+app = FastAPI(
+    title="MM-Embed Inference Server",
+    lifespan=lifespan
+)
+app.state.sem = asyncio.Semaphore(1)
 
 class EmbeddingRequest(BaseModel):
     text: str = ""
@@ -38,15 +40,9 @@ class QueryEmbeddingRequest(BaseModel):
 class EmbeddingResponse(BaseModel):
     embedding: tp.List[float]
 
-class BatchEmbeddingRequest(BaseModel):
-    items: tp.List[EmbeddingRequest]
-
-class BatchEmbeddingResponse(BaseModel):
-    embeddings: tp.List[tp.List[float]]
-
 @app.post("/embed", response_model=EmbeddingResponse)
 async def embed(request: EmbeddingRequest):
-    if model is None:
+    if app.state.model is None:
         raise HTTPException(status_code=503, detail="Model not initialized")
 
     gen_input = GenerationInput(
@@ -55,7 +51,11 @@ async def embed(request: EmbeddingRequest):
     )
 
     try:
-        emb = model.embedding(gen_input)
+        async with app.state.sem:
+            emb = await asyncio.to_thread(
+                app.state.model.embedding,
+                gen_input,
+            )
         vec = emb.squeeze(0).tolist()
         return EmbeddingResponse(embedding=vec)
     except Exception as e:
@@ -64,7 +64,7 @@ async def embed(request: EmbeddingRequest):
 
 @app.post("/embed/query", response_model=EmbeddingResponse)
 async def embed(request: QueryEmbeddingRequest):
-    if model is None:
+    if app.state.model is None:
         raise HTTPException(status_code=503, detail="Model not initialized")
 
     query_gen_input = QueryGenerationInput(
@@ -74,7 +74,11 @@ async def embed(request: QueryEmbeddingRequest):
     )
 
     try:
-        emb = model.query_embedding(query_gen_input)
+        async with app.state.sem:
+            emb = await asyncio.to_thread(
+                app.state.model.query_embedding,
+                query_gen_input,
+            )
         vec = emb.squeeze(0).tolist()
         return EmbeddingResponse(embedding=vec)
     except Exception as e:
@@ -82,30 +86,10 @@ async def embed(request: QueryEmbeddingRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.post("/embed/batch", response_model=BatchEmbeddingResponse)
-async def embed_batch(request: BatchEmbeddingRequest):
-    if model is None:
-        raise HTTPException(status_code=503, detail="Model not initialized")
-
-    gen_inputs = [GenerationInput(
-        text=i.text,
-        img_path=i.img_path,
-    ) for i in request.items]
-
-    try:
-        embeddings = model.batch_embedding(gen_inputs)
-    except Exception as e:
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=str(e))
-
-    vecs = [emb.squeeze(0).tolist() for emb in embeddings]
-    return BatchEmbeddingResponse(embeddings=vecs)
-
-
 if __name__ == "__main__":
     uvicorn.run(
         "server:app",
         host="0.0.0.0",
-        port=8002,
+        port=8000,
         workers=1,
     )
