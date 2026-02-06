@@ -52,8 +52,12 @@ def mmqa_query_eval(query_answer_list: tp.List[MMQAQueryAnswer]) -> float:
 
     return em_score
 
-
-def mmqa_load_query_answer(dev_path: str, text_path: str, img_path: str, table_path: str) -> tp.List[MMQAQueryAnswer]:
+def mmqa_load_query_answer(mmqa_folderpath: str) -> tp.List[MMQAQueryAnswer]:
+    dev_path: str = os.path.join(mmqa_folderpath, "MMQA_dev.jsonl")
+    text_path: str = os.path.join(mmqa_folderpath, "MMQA_texts.jsonl")
+    img_path: str = os.path.join(mmqa_folderpath, "MMQA_images.jsonl")
+    table_path: str = os.path.join(mmqa_folderpath, "MMQA_tables.jsonl")
+    
     def load_jsonl(path):
         data = []
         with open(path, "r", encoding="utf-8") as f:
@@ -92,11 +96,11 @@ def mmqa_load_query_answer(dev_path: str, text_path: str, img_path: str, table_p
     
     return result_query_answer
 
-def mmqa_get_clean_wikidocs_titles(mmqa_path: str) -> tp.List[str]:
-    mmqa_devpath = os.path.join(mmqa_path, "MMQA_dev.jsonl")
-    mmqa_textpath = os.path.join(mmqa_path, "MMQA_texts.jsonl")
-    mmqa_imagepath = os.path.join(mmqa_path, "MMQA_images.jsonl")
-    mmqa_tablepath = os.path.join(mmqa_path, "MMQA_tables.jsonl")
+def mmqa_get_clean_wikidocs_titles(mmqa_folderpath: str) -> tp.List[str]:
+    mmqa_devpath = os.path.join(mmqa_folderpath, "MMQA_dev.jsonl")
+    mmqa_textpath = os.path.join(mmqa_folderpath, "MMQA_texts.jsonl")
+    mmqa_imagepath = os.path.join(mmqa_folderpath, "MMQA_images.jsonl")
+    mmqa_tablepath = os.path.join(mmqa_folderpath, "MMQA_tables.jsonl")
     
     doc_ids = set()
     img_ids = set()
@@ -140,18 +144,18 @@ def mmqa_get_clean_wikidocs_titles(mmqa_path: str) -> tp.List[str]:
     print(f"Extract {len(clean_titles)} unique wiki title")
     return list(clean_titles)
 
-def mmqa_get_title_component_map_from_file(mmqa_path: str) -> tp.Dict[str, tp.Dict[str, tp.List[str]]]:
-    clean_titles: tp.List[str] = mmqa_get_clean_wikidocs_titles(mmqa_path)
-    mmqa_textpath = os.path.join(mmqa_path, "MMQA_texts.jsonl")
-    mmqa_imagepath = os.path.join(mmqa_path, "MMQA_images.jsonl")
-    mmqa_tablepath = os.path.join(mmqa_path, "MMQA_tables.jsonl")
+def mmqa_get_title_component_map_from_file(mmqa_folderpath: str) -> tp.Dict[str, tp.Dict[str, tp.List[str]]]:
+    clean_titles: tp.List[str] = mmqa_get_clean_wikidocs_titles(mmqa_folderpath)
+    mmqa_textpath = os.path.join(mmqa_folderpath, "MMQA_texts.jsonl")
+    mmqa_imagepath = os.path.join(mmqa_folderpath, "MMQA_images.jsonl")
+    mmqa_tablepath = os.path.join(mmqa_folderpath, "MMQA_tables.jsonl")
 
     result = {
         title: {"txtid": [], "imgid": [], "tabid": []}
         for title in clean_titles
     }
 
-    def scan_component(filepath: str, key: str):
+    def scan_component(filepath: str, key: str): # TODO: 이거 가져오는 로직이 뭔가 이상함. 수정해야 됨.
         with open(filepath, "r", encoding="utf-8") as f:
             for line in f:
                 item = json.loads(line)

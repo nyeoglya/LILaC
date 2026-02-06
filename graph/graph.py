@@ -4,40 +4,29 @@ import typing as tp
 
 import numpy as np
 
-from processor import ProcessedComponent, LILaCDocument
-from common import get_embedding, EmbeddingRequestData
+from embed import ProcessedComponent, LILaCDocument
 
 class LILaCGraph:
-    def __init__(self, filepath: str) -> None:
-        self.filepath: str = filepath
-        self.comp_map: tp.List[tp.Dict] = [] # comp id -> component
-        self.comp_doc_map: tp.List[str] = [] # comp id -> doc title, debugging purpose
-        self.comp_embedding_map: np.ndarray = np.array([]) # comp id -> comp embedding
+    def __init__(self) -> None:
+        self.component_id_map: tp.List[tp.Dict] = [] # comp id -> component
+        self.component_doc_title_map: tp.List[str] = [] # comp id -> doc title, debugging purpose
+        self.component_embedding_map: np.ndarray = np.array([]) # comp id -> comp embedding
         
-        self.subcomp_embeddings_dump: np.ndarray = np.array([]) # comp id -> array slicing(=subcomponent_embedding)
-        self.subcomp_range_map: np.ndarray = np.array([]) # comp id -> (start, end) tuple
-        self.edge: tp.List[tp.Set[int]] = [] # comp id -> set(comp id)
+        self.subcomponent_embeddings_dump: np.ndarray = np.array([]) # comp id -> array slicing(=subcomponent_embedding)
+        self.subcomponent_embedding_range_map: np.ndarray = np.array([]) # comp id -> (start, end) tuple
+        self.component_edge_map: tp.List[tp.Set[int]] = [] # comp id -> set(comp id)
 
-    # Manage Files
-    def load(self) -> bool:
-        if not os.path.exists(self.filepath):
-            print(f"Error: {self.filepath} not found.")
-            return False
+    @staticmethod
+    def load_graph(graph_filepath: str) -> "LILaCGraph":
+        if not os.path.exists(graph_filepath):
+            raise FileNotFoundError
         
-        try:
-            with open(self.filepath, "rb") as f:
-                data: LILaCGraph = pickle.load(f)
-                self.comp_map = data.comp_map
-                self.comp_doc_map = data.comp_doc_map
-                self.comp_embedding_map = data.comp_embedding_map
-                self.subcomp_embeddings_dump = data.subcomp_embeddings_dump
-                self.subcomp_range_map = data.subcomp_range_map
-                self.edge = data.edge
-            return True
-        except Exception as e:
-            print(f"Load failed: {e}")
-            return False
-    
+        with open(graph_filepath, "rb") as f:
+            lilac_graph: LILaCGraph = pickle.load(f)
+            edge_count = sum([len(component_edge_list) for component_edge_list in lilac_graph.component_edge_map])
+            print(f"Complete loading graph. Total {len(lilac_graph.component_id_map)} components, {edge_count} edges")
+            return lilac_graph
+        
     @staticmethod
     def make_graph(lilac_doc_folderpath: str, graph_filepath: str) -> bool:
         assert os.path.exists(lilac_doc_folderpath)
@@ -55,51 +44,62 @@ class LILaCGraph:
         total_subcomponent_count = sum(len(processed_component.subcomponent_embeddings) for processed_component in processed_component_list)
         
         if total_component_count == 0: return False
-        component_map: tp.List[tp.Optional[tp.Dict]] = [None] * total_component_count
+        component_id_map: tp.List[tp.Optional[tp.Dict]] = [None] * total_component_count
         component_doc_title_map: tp.List[tp.Optional[str]] = [None] * total_component_count
         component_edge_map: tp.List[tp.Set] = [set() for _ in range(total_component_count)]
         subcomponent_embedding_range_map: np.ndarray = np.zeros((total_component_count, 2), dtype=np.int64)
         
         component_embedding_map = np.empty((total_component_count, embedding_dimension), dtype=np.float32)
-        subcomponent_embedding_dump = np.empty((total_subcomponent_count, embedding_dimension), dtype=np.float32)
+        subcomponent_embeddings_dump = np.empty((total_subcomponent_count, embedding_dimension), dtype=np.float32)
 
-        cursor = 0
-        print(f"Processing {total_component_count} components and {total_subcomponent_count} sub-embeddings...")
+        subcomponent_id_cursor = 0
+        current_component_id = 0
+        doc_title_component_id_list_map: tp.Dict[str, tp.List[int]] = dict()
         for lilac_doc in lilac_doc_list:
-            doc_comp_ids = [comp.id for comp in lilac_doc.processed_components]
-            
-            for comp in lilac_doc.processed_components:
-                cid = comp.id
-                
-                # 기본 정보 할당
-                graph.comp_map[cid] = comp.component
-                graph.comp_doc_map[cid] = lilac_doc.doc_title
-                graph.comp_embedding_map[cid] = comp.embedding
+            inter_component_id_list = [current_component_id + i for i in range(len(lilac_doc.processed_components))]
+            doc_title_component_id_list_map[lilac_doc.doc_title] = inter_component_id_list
+            for processed_component in lilac_doc.processed_components:
+                component_id_map[current_component_id] = processed_component.original_component
+                component_doc_title_map[current_component_id] = lilac_doc.doc_title
+                component_embedding_map[current_component_id] = processed_component.component_embedding
 
-                # 같은 문서 내 모든 컴포넌트와 양방향 연결
-                for other_id in doc_comp_ids:
-                    graph.edge[cid].add(other_id)
-                    graph.edge[other_id].add(cid) # 역방향 추가
-                    
-                # 기존 comp.edge에 정의된 관계를 양방향 연결
-                if comp.edge:
-                    for target_id in comp.edge:
-                        graph.edge[cid].add(target_id)
-                        graph.edge[target_id].add(cid) # 역방향 추가
-                
-                # 임베딩 처리
-                sub_embs = comp.subcomp_embeddings
-                k = len(sub_embs)
-                if k > 0:
-                    start, end = cursor, cursor + k
-                    graph.subcomp_range_map[cid] = (start, end)
-                    graph.subcomp_embeddings_dump[start:end] = np.array(sub_embs)
-                    cursor = end
+                for other_component_id in inter_component_id_list: # inter connection
+                    component_edge_map[current_component_id].add(other_component_id)
+                    component_edge_map[other_component_id].add(current_component_id)
 
-        # Pickle 저장 최적화
-        print(f"Saving to {graph_filepath}...")
+                subcomponent_embedding_list = processed_component.subcomponent_embeddings
+                start_id, end_id = subcomponent_id_cursor, subcomponent_id_cursor + len(subcomponent_embedding_list)
+                subcomponent_embedding_range_map[current_component_id] = (start_id, end_id)
+                try:
+                    subcomponent_embeddings_dump[start_id:end_id] = np.array(subcomponent_embedding_list)
+                except:
+                    print(subcomponent_embedding_list)
+                    print(lilac_doc.doc_title, processed_component.original_component)
+                subcomponent_id_cursor = end_id
+                current_component_id += 1
+        
+        current_component_id = 0
+        for lilac_doc in lilac_doc_list:
+            for processed_component in lilac_doc.processed_components:
+                if processed_component.neighbor_components: # outer component id mapping
+                    for neighbor_component in processed_component.neighbor_components:
+                        if neighbor_component in doc_title_component_id_list_map:
+                            component_edge_map[current_component_id].update(doc_title_component_id_list_map[neighbor_component])
+                current_component_id += 1
+
+        assert None not in component_id_map
+        assert None not in component_doc_title_map
+
+        graph = LILaCGraph()
+        graph.component_id_map = tp.cast(tp.List[tp.Dict], component_id_map)
+        graph.component_doc_title_map = tp.cast(tp.List[str], component_doc_title_map)
+        graph.component_embedding_map = component_embedding_map
+        graph.subcomponent_embeddings_dump = subcomponent_embeddings_dump
+        graph.subcomponent_embedding_range_map = subcomponent_embedding_range_map
+        graph.component_edge_map = component_edge_map
+        
         with open(graph_filepath, "wb") as f:
-            pickle.dump(graph, f, protocol=pickle.HIGHEST_PROTOCOL) # HIGHEST_PROTOCOL: 4GB 이상의 대용량 객체 처리에 유용
+            pickle.dump(graph, f, protocol=pickle.HIGHEST_PROTOCOL) # HIGHEST_PROTOCOL: Save large object (>4GB)
 
         return True
 
@@ -108,15 +108,15 @@ class LILaCBeam:
         assert subquery_embeddings.ndim == 2
         assert query_embedding.ndim == 1
         
-        self.query_embedding: np.array = query_embedding
-        self.subquery_embeddings: np.array = subquery_embeddings
+        self.query_embedding: np.ndarray = query_embedding
+        self.subquery_embeddings: np.ndarray = subquery_embeddings
         self.beam_size = beam_size
         self.lilac_graph = lgraph
         self.beam: tp.List[tp.Tuple[int, int]] = []
 
     # Graph Traverse
     def find_entry(self) -> bool:
-        comp_scores = self.query_embedding @ self.lilac_graph.comp_embedding_map.T # (1, D) @ (D, M) -> (1, M)
+        comp_scores = self.query_embedding @ self.lilac_graph.component_embedding_map.T # (1, D) @ (D, M) -> (1, M)
 
         # top beam size
         beam_entry = []
@@ -130,11 +130,11 @@ class LILaCBeam:
         return True
 
     def calculate_score(self, comp1, comp2=None):
-        start1, end1 = self.lilac_graph.subcomp_range_map[comp1]
-        sim1 = self.subquery_embeddings @ self.lilac_graph.subcomp_embeddings_dump[start1:end1].T # (Q, D) @ (D, M)
+        start1, end1 = self.lilac_graph.subcomponent_embedding_range_map[comp1]
+        sim1 = self.subquery_embeddings @ self.lilac_graph.subcomponent_embeddings_dump[start1:end1].T # (Q, D) @ (D, M)
         if comp2:
-            start2, end2 = self.lilac_graph.subcomp_range_map[comp2]
-            sim2 = self.subquery_embeddings @ self.lilac_graph.subcomp_embeddings_dump[start2:end2].T # (Q, D) @ (D, M)
+            start2, end2 = self.lilac_graph.subcomponent_embedding_range_map[comp2]
+            sim2 = self.subquery_embeddings @ self.lilac_graph.subcomponent_embeddings_dump[start2:end2].T # (Q, D) @ (D, M)
             return np.sum(np.max(np.concatenate((sim1, sim2), axis=1), axis=1))
         else:
             return np.sum(np.max(sim1, axis=1))
@@ -151,7 +151,7 @@ class LILaCBeam:
         prev_beam_nodes = set(c for edge in self.beam for c in edge)
         candidate_edges = dict() # (comp1, comp2) -> score dict. (comp1 > comp2)        
         for comp in candidate_comps:
-            neighbor_comps = self.lilac_graph.edge[comp]
+            neighbor_comps = self.lilac_graph.component_edge_map[comp]
             if not neighbor_comps:
                 if (comp, comp) not in candidate_edges:
                     candidate_edges[(comp, comp)] = self.calculate_score(comp)
@@ -192,14 +192,14 @@ class LILaCBeam:
         result_comps = []
         unique_nodes = self.top_comp_ids(top_k)
         for unique_node in unique_nodes:
-            result_comps.append(self.lilac_graph.comp_map[unique_node])
+            result_comps.append(self.lilac_graph.component_id_map[unique_node])
         return result_comps
 
     def top_doc_titles(self, top_k: int) -> tp.List[dict]:
         result_docs = []
         unique_nodes = self.top_comp_ids(top_k)
         for unique_node in unique_nodes:
-            result_docs.append(self.lilac_graph.comp_doc_map[unique_node])
+            result_docs.append(self.lilac_graph.component_doc_title_map[unique_node])
         return result_docs
 
 class LILaCBeamV2:
@@ -214,7 +214,7 @@ class LILaCBeamV2:
 
     def _get_top_relevancy(self, comp_id: int) -> float:
         """Top-level 임베딩(comp_embedding_map)과 원본 쿼리 간의 내적 점수를 반환합니다."""
-        comp_vec = self.lilac_graph.comp_embedding_map[comp_id]
+        comp_vec = self.lilac_graph.component_embedding_map[comp_id]
         return float(np.dot(comp_vec, self.query_embedding))
 
     def find_entry(self) -> bool:
@@ -222,7 +222,7 @@ class LILaCBeamV2:
         
         # 1. 모든 서브 컴포넌트 임베딩과 질문 간의 유사도 계산
         # lilac_graph.subcomp_embeddings_dump: (Total_Sub_Count, D)
-        low_scores = self.lilac_graph.subcomp_embeddings_dump @ self.query_embedding.T
+        low_scores = self.lilac_graph.subcomponent_embeddings_dump @ self.query_embedding.T
         
         # 2. 상위 2048개 하위 인덱스 추출
         top_k_low_indices = np.argsort(-low_scores)[:2048]
@@ -234,8 +234,8 @@ class LILaCBeamV2:
             # low_idx가 어느 (start, end) 구간에 있는지 확인
             parent_id = -1
             # subcomp_range_map: (N, 2)
-            starts = self.lilac_graph.subcomp_range_map[:, 0]
-            ends = self.lilac_graph.subcomp_range_map[:, 1]
+            starts = self.lilac_graph.subcomponent_embedding_range_map[:, 0]
+            ends = self.lilac_graph.subcomponent_embedding_range_map[:, 1]
             
             # low_idx가 포함된 행 찾기
             matches = np.where((starts <= low_idx) & (low_idx < ends))[0]
@@ -253,12 +253,12 @@ class LILaCBeamV2:
 
     def calculate_score(self, comp1: int, comp2: tp.Optional[int] = None) -> float:
         """논문 수식 (6)의 Late Interaction 스코어링입니다."""
-        start1, end1 = self.lilac_graph.subcomp_range_map[comp1]
-        emb1 = self.lilac_graph.subcomp_embeddings_dump[start1:end1]
+        start1, end1 = self.lilac_graph.subcomponent_embedding_range_map[comp1]
+        emb1 = self.lilac_graph.subcomponent_embeddings_dump[start1:end1]
         
         if comp2 is not None and comp1 != comp2:
-            start2, end2 = self.lilac_graph.subcomp_range_map[comp2]
-            emb2 = self.lilac_graph.subcomp_embeddings_dump[start2:end2]
+            start2, end2 = self.lilac_graph.subcomponent_embedding_range_map[comp2]
+            emb2 = self.lilac_graph.subcomponent_embeddings_dump[start2:end2]
             combined_subembs = np.concatenate((emb1, emb2), axis=0)
         else:
             combined_subembs = emb1
@@ -278,7 +278,7 @@ class LILaCBeamV2:
         candidate_edges = {} 
 
         for comp in current_nodes:
-            neighbors = self.lilac_graph.edge[comp] # set(comp_id)
+            neighbors = self.lilac_graph.component_edge_map[comp] # set(comp_id)
             
             # 1. 고립 노드 처리 (더미 엣지 개념)
             if not neighbors:
@@ -341,25 +341,7 @@ class LILaCBeamV2:
         return ordered_nodes
 
     def top_comps(self, top_k: int) -> tp.List[dict]:
-        return [self.lilac_graph.comp_map[nid] for nid in self.top_comp_ids(top_k)]
+        return [self.lilac_graph.component_id_map[nid] for nid in self.top_comp_ids(top_k)]
 
     def top_doc_titles(self, top_k: int) -> tp.List[str]:
-        return [self.lilac_graph.comp_doc_map[nid] for nid in self.top_comp_ids(top_k)]
-
-if __name__ == "__main__":
-    LILaCGraph.make_graph(LDOC_FOLDER, GRAPH_FILE_PATH)
-    lilac_graph = LILaCGraph(GRAPH_FILE_PATH)
-    lilac_graph.load()
-    # print(sum([len(ii) for ii in lilac_graph.edge]))
-
-    for i in range(100):
-        aaa = lilac_graph.comp_map[i]
-        if not aaa["type"] == "paragraph":
-            continue
-        text = aaa["paragraph"]
-        emb = lilac_graph.comp_embedding_map[i]
-        q_emb = get_embedding(EmbeddingRequestData(text, ""))
-        sim = np.dot(emb, q_emb.T)
-        if sim < 0.9:
-            print(f"Index {i} broken! Sim: {sim}")
-            print(f"{lilac_graph.comp_map[i]}")
+        return [self.lilac_graph.component_doc_title_map[nid] for nid in self.top_comp_ids(top_k)]

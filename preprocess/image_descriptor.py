@@ -17,7 +17,7 @@ import torch
 from ultralytics import YOLO
 
 from query import IMAGE_OCR_QUERY, EXPLANATION_INSTRUCTION
-from common import get_llm_response, get_clean_savepath
+from common import get_llm_response, get_clean_savepath, get_clean_filename_with_extension_from_filepath
 
 
 class SequentialImageNormalizer: # resize + mapping
@@ -101,7 +101,7 @@ class BatchImageDescriptor: # OCR, Explanation
         self.image_folder_path: str = image_folder_path
         self.image_filepath_list: tp.List[str] = []
         
-        self.progress_bar = tqdm(total=0, desc="Batch Image Descripting...")
+        self.progress_bar: tqdm = tqdm(total=0, desc="Batch Image Descripting...")
     
     def load_image_filelist(self) -> bool:
         assert os.path.exists(self.image_folder_path)
@@ -115,37 +115,35 @@ class BatchImageDescriptor: # OCR, Explanation
 
         return True
 
-    def process_single_image(self, image_path: str, server_url: str):
-        explanation_text = get_llm_response(server_url, EXPLANATION_INSTRUCTION, [image_path])
-        ocr_text = get_llm_response(server_url, IMAGE_OCR_QUERY, [image_path])
-
+    def process_single_image(self, image_path: str, server_url: str) -> tp.Dict[str, str]:
+        explanation_text: str = get_llm_response(server_url, EXPLANATION_INSTRUCTION, [image_path])
+        ocr_text: str = get_llm_response(server_url, IMAGE_OCR_QUERY, [image_path])
+        clean_imagename = get_clean_filename_with_extension_from_filepath(image_path)
+        
         return {
-            "file_path": image_path,
+            "image": clean_imagename,
             "explanation": explanation_text,
             "ocr": ocr_text,
         }
 
     def run_description(self, failed_file_path: str, description_file_path: str, llm_server_list: tp.List[str]) -> bool:
-        processed_paths = set()
+        processed_pathset: tp.Set[str] = set()
         if os.path.exists(description_file_path):
-            with open(description_file_path, 'r', encoding='utf-8') as f:
-                for line in f:
-                    try:
-                        data = json.loads(line)
-                        processed_paths.add(data["file_path"])
-                    except:
-                        pass
+            with open(description_file_path, 'r', encoding='utf-8') as description_file:
+                for descriptionline in description_file:
+                    data = json.loads(descriptionline)
+                    processed_pathset.add(data["image"])
 
-        targets = [
-            p for p in self.image_filepath_list
-            if p not in processed_paths
+        target_list = [
+            filepath for filepath in self.image_filepath_list
+            if get_clean_filename_with_extension_from_filepath(filepath) not in processed_pathset
         ]
 
-        self.progress_bar.total = len(targets)
+        self.progress_bar.total = len(target_list)
         server_cycle = itertools.cycle(llm_server_list)
 
-        with open(description_file_path, 'a', encoding='utf-8') as f_success, \
-            open(failed_file_path, 'a', encoding='utf-8') as f_fail, \
+        with open(description_file_path, 'a', encoding='utf-8') as description_file, \
+            open(failed_file_path, 'a', encoding='utf-8') as failed_file, \
             ThreadPoolExecutor(max_workers=len(llm_server_list)) as executor:
 
             future_to_path = {
@@ -154,19 +152,19 @@ class BatchImageDescriptor: # OCR, Explanation
                     image_path,
                     next(server_cycle)
                 ): image_path
-                for image_path in targets
+                for image_path in target_list
             }
 
             for future in as_completed(future_to_path):
                 image_path = future_to_path[future]
                 try:
                     result = future.result()
-                    f_success.write(json.dumps(result, ensure_ascii=False) + '\n')
-                    f_success.flush()
+                    description_file.write(json.dumps(result, ensure_ascii=False) + '\n')
+                    description_file.flush()
                 except Exception as e:
                     tqdm.write(f"Error processing {image_path}: {e}")
-                    f_fail.write(f"{image_path}\n")
-                    f_fail.flush()
+                    failed_file.write(f"{image_path}\n")
+                    failed_file.flush()
                 finally:
                     self.progress_bar.update(1)
 
