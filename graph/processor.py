@@ -1,5 +1,6 @@
 import os
 import re
+import glob
 import json
 import pickle
 import unicodedata
@@ -16,24 +17,23 @@ from config import (
     MMEMBED_SERVER_URL_LIST,
     MMQA_PARSE_JSON_FOLDER,
     MMQA_LDOC_FOLDER,
-    MMQA_LDOC_FOLDER_TEMP,
     MMQA_IMAGE_DESCRIPTION_INFO_FILE,
     MMQA_OBJECT_DETECT_INFO_FILE,
     MMQA_PROCESS_IMAGE_FOLDER,
-    MMQA_REMAP_IMAGE_EMBEDDING_PT,
-    MMQA_REMAP_REFERENCE_EMBEDDING_PT
+    MMQA_REMAP_IMAGE_EMBEDDING_FILE,
+    MMQA_REMAP_IMAGE_REFERENCE_EMBEDDING_FILE
 )
 from common import (
     get_embedding, get_clean_filename_from_url, get_clean_savepath,
     EmbeddingRequestData
 )
-from base_data_structure import ComponentData
+from utils.mmqa import mmqa_get_title_component_map_from_file
 
 class ProcessedComponent:
-    def __init__(self, original_component) -> None:
+    def __init__(self, original_component: tp.Dict) -> None:
         self.component_uuid: str = "" # unique id for calculating retrieval score (ex: mmqa cid)
         self.doc_title: str = ""
-        self.original_component: ComponentData = original_component
+        self.original_component: tp.Dict = original_component
         self.component_embedding: np.ndarray = np.array([])
         self.subcomponent_embeddings: tp.List[np.ndarray] = [] # list(subcomp embed vector)
         self.neighbor_components: tp.List[str] = [] # list(doc title)
@@ -104,9 +104,9 @@ class LILaCDocument:
     
     def run_embedding(self) -> bool:
         self.doc_title = self.original_json_data["title"]
-        self.component_list = self.original_json_data["comp_data"]
+        component_list = self.original_json_data["comp_data"]
         
-        for component in self.component_list:
+        for component in component_list:
             result_component = None
             if component['type'] == "paragraph":
                 result_component = self.process_text_component(component)
@@ -115,8 +115,7 @@ class LILaCDocument:
             elif component['type'] == "image":
                 result_component = self.process_image_component(component)
             
-            if result_component is None:
-                continue
+            if result_component is None: continue
             
             result_component.doc_title = self.doc_title
             self.processed_components.append(result_component)
@@ -135,12 +134,14 @@ class LILaCDocument:
         
         return result_component
     
-    def process_table_component(self, component) -> ProcessedComponent:
+    def process_table_component(self, component) -> tp.Optional[ProcessedComponent]:
         serialized_text_prefix = f"{self.doc_title} [SEP] {' , '.join(component['heading_path'])} [SEP] "
         
         original_table: tp.List[tp.List[str]] = component["table"]
-        table_first_row: tp.List[str] = original_table[0]
         subcomponent_embeddings: tp.List[np.ndarray] = []
+        
+        if not original_table: return None
+        table_first_row: tp.List[str] = original_table[0]
         
         if len(original_table) <= 2:
             text, image_filepath_list = self._flatten_table(original_table)
@@ -167,7 +168,10 @@ class LILaCDocument:
             tqdm.write(f"Error: No {clean_png_image_filepath} exists")
             return None
         
-        image_metadata = self.image_metadata_map[clean_imagename + ".png"]
+        clean_png_imagename = clean_imagename + ".png"
+        if clean_png_imagename not in self.image_metadata_map:
+            return None
+        image_metadata = self.image_metadata_map[clean_png_imagename]
         serialized_text = f"{self.doc_title} [SEP] {' , '.join(component['heading_path'])} [SEP] {component['caption']}"
         serialized_text += f" [SEP] {image_metadata['explanation']}" if image_metadata["explanation"] else ""
         serialized_text += f" [SEP] {image_metadata['ocr']}" if image_metadata["ocr"] else ""
@@ -295,6 +299,7 @@ class SequentialDataEmbedder:
             new_ldoc.load_json(json_path)
             new_ldoc_filepath = os.path.join(self.ldoc_folderpath, f"{new_ldoc.doc_title}.ldoc")
             if os.path.exists(new_ldoc_filepath):
+                self.progress_bar.update(1)
                 tqdm.write(f"Skip document {new_ldoc.doc_title} as it is already parsed.")
                 continue
             
@@ -302,9 +307,10 @@ class SequentialDataEmbedder:
                 new_ldoc.run_embedding()
                 new_ldoc.save_to_path(new_ldoc_filepath)
                 self.lilac_doc_dict[new_ldoc.doc_title] = new_ldoc
-                self.progress_bar.update(1)
             except Exception as e:
                 print(f"Skip document {new_ldoc.doc_title} as it failed: {e}")
+            finally:
+                self.progress_bar.update(1)
         return True
     
     '''
@@ -350,49 +356,146 @@ class SequentialDataEmbedder:
         return True
     '''
 
+SerializedList = tp.List[tp.Tuple[int, str]]
+
 class LILaCDocMMQAMapper:
     def __init__(
         self,
         mmqa_folderpath: str,
-        mmqa_remap_reference_embedding_filepath: str,
-        mmqa_remap_image_embedding_filepath: str,
         mmqa_ldoc_folderpath: str,
+        mmqa_reference_image_embedding_filepath: str,
+        mmqa_image_embedding_filepath: str
     ) -> None:
         self.mmqa_folderpath: str = mmqa_folderpath
-        self.mmqa_remap_image_embedding_filepath: str = mmqa_remap_image_embedding_filepath
-        self.mmqa_remap_reference_embedding_filepath: str = mmqa_remap_reference_embedding_filepath
         self.mmqa_ldoc_folderpath: str = mmqa_ldoc_folderpath
+        self.mmqa_image_embedding_filepath: str = mmqa_image_embedding_filepath
+        self.mmqa_reference_image_embedding_filepath: str = mmqa_reference_image_embedding_filepath
         
-        self.doc_title_id_map: tp.Dict[str, tp.Tuple[str, ComponentData]] = dict()
+        self.doc_title_id_map: tp.Dict[str, tp.Dict[str, tp.List[str]]] = dict()
+        self.image_embedding_map: tp.Dict[str, np.ndarray] = dict()
+        self.reference_image_embedding_map: tp.Dict[str, np.ndarray] = dict()
+        self.id_serialized_text_map: tp.Dict[str, str] = dict()
+        self.doc_title_lilac_doc_map: tp.Dict[str, LILaCDocument] = dict()
+        self.doc_title_lilac_doc_serialized_info_map: tp.Dict[str, tp.Tuple[SerializedList, SerializedList, SerializedList]] = dict()
 
     def load_mmqa_reference(self): # doc_title -> (serialized text, id) map
         assert os.path.exists(self.mmqa_folderpath)
-        assert os.path.exists(self.mmqa_ldoc_folderpath)
-        assert os.path.exists(self.mmqa_remap_image_embedding_filepath)
-        assert os.path.exists(self.mmqa_remap_reference_embedding_filepath)
+        assert os.path.exists(self.mmqa_image_embedding_filepath)
+        assert os.path.exists(self.mmqa_reference_image_embedding_filepath)
         
-        self.doc_title_id_map: tp.Dict[str, tp.Tuple[str, ComponentData]] = dict()
+        self.doc_title_id_map = mmqa_get_title_component_map_from_file(self.mmqa_folderpath)
         with (
-            open(self.mmqa_remap_image_embedding_filepath, "w", encoding="utf-8") as mmqa_remap_image_embedding_file,
-            open(self.mmqa_remap_reference_embedding_filepath, "w", encoding="utf-8") as mmqa_remap_reference_embedding_file,
-            open(os.path.join(self.mmqa_folderpath, "mmqa_text.jsonl"), "w", encoding="utf-8") as mmqa_text_file
+            open(self.mmqa_image_embedding_filepath, "rb") as mmqa_remap_image_embedding_file,
+            open(self.mmqa_reference_image_embedding_filepath, "rb") as mmqa_remap_reference_image_embedding_file
         ):
-            pass
+            self.image_embedding_map = pickle.load(mmqa_remap_image_embedding_file)
+            self.image_embedding_map = {
+                os.path.splitext(os.path.basename(path))[0]: emb 
+                for path, emb in self.image_embedding_map.items()
+            }
+            self.reference_image_embedding_map = pickle.load(mmqa_remap_reference_image_embedding_file)
+            self.reference_image_embedding_map = {
+                os.path.splitext(os.path.basename(path))[0]: emb
+                for path, emb in self.reference_image_embedding_map.items()
+            }
+        
+        mmqa_text_filepath = os.path.join(self.mmqa_folderpath, "MMQA_texts.jsonl")
+        mmqa_table_filepath = os.path.join(self.mmqa_folderpath, "MMQA_tables.jsonl")
+        
+        with open(mmqa_text_filepath, "rb") as mmqa_text_file:
+            for fileline in mmqa_text_file:
+                line_data = json.loads(fileline)
+                self.id_serialized_text_map[line_data["id"]] = self._get_clean_text(line_data["text"])
+        
+        with open(mmqa_table_filepath, "rb") as mmqa_table_file:
+            for fileline in mmqa_table_file:
+                line_data = json.loads(fileline)
+                table_data = line_data["table"]["table_rows"]
+                table: tp.List[tp.List[str]] = [[table_item["text"] for table_item in table_row] for table_row in table_data]
+                serialized_text, _ = self._serialize_table(table)
+                self.id_serialized_text_map[line_data["id"]] = self._get_clean_text(serialized_text)
     
     def load_ldoc_from_folder(self): # doc_title -> (serialized text) map
-        pass
+        assert os.path.exists(self.mmqa_ldoc_folderpath)
+        
+        for mmqa_ldoc_filepath in glob.glob(os.path.join(self.mmqa_ldoc_folderpath, "*")):
+            lilac_doc = LILaCDocument.load_from_path(mmqa_ldoc_filepath)
+            if not lilac_doc:
+                continue
+            
+            serialized_text_info_list: tp.List[tp.Tuple[int, str]] = []
+            serialized_table_info_list: tp.List[tp.Tuple[int, str]] = []
+            image_info_list: tp.List[tp.Tuple[int, str]] = []
+            
+            processed_component_list: tp.List[ProcessedComponent] = lilac_doc.processed_components
+            for index, processed_component in enumerate(processed_component_list):
+                original_component = processed_component.original_component
+                if original_component["type"] == "paragraph":
+                    serialized_text_info_list.append((index, self._get_clean_text(original_component["paragraph"])))
+                elif original_component["type"] == "table":
+                    serialized_text, image_filepath_list = self._serialize_table(original_component["table"])
+                    serialized_table_info_list.append((index, self._get_clean_text(serialized_text)))
+                    image_info_list.extend([(index, filename) for filename in image_filepath_list])
+                elif original_component["type"] == "image":
+                    filename, _ = get_clean_filename_from_url(original_component["src"])
+                    image_info_list.append((index, filename))
+            
+            self.doc_title_lilac_doc_map[lilac_doc.doc_title] = lilac_doc
+            self.doc_title_lilac_doc_serialized_info_map[lilac_doc.doc_title] = (serialized_text_info_list, image_info_list, serialized_table_info_list)
     
     def run_remapping(self): # save uuid to ldoc if possible
-        pass
+        for doc_title in tqdm(self.doc_title_id_map, desc="Remapping..."):
+            if doc_title not in self.doc_title_lilac_doc_serialized_info_map:
+                continue
+            
+            serialized_text_info_list, image_info_list, serialized_table_info_list = self.doc_title_lilac_doc_serialized_info_map[doc_title]
+            doc_component_id_info: tp.Dict[str, tp.List[str]] = self.doc_title_id_map[doc_title]
+            
+            remapping_data_info_list = []
+            for text_component_id in doc_component_id_info["txtid"]:
+                serialized_text_data = self.id_serialized_text_map[text_component_id]
+                best_item = max(
+                    serialized_text_info_list, 
+                    key=lambda item: self._recall_score(serialized_text_data, item[1])
+                )
+                remapping_data_info_list.append((best_item[0], text_component_id))
+            for image_component_id in doc_component_id_info["imgid"]:
+                reference_image_embedding = self.reference_image_embedding_map[image_component_id]
+                valid_image_info_list = [] # TEMP
+                for index, image_name in image_info_list:
+                    if image_name in self.image_embedding_map:
+                        valid_image_info_list.append((index, image_name))
+                if valid_image_info_list:
+                    best_item = max(
+                        valid_image_info_list,
+                        key=lambda item: reference_image_embedding @ self.image_embedding_map[item[1]]
+                    )
+                    remapping_data_info_list.append((best_item[0], image_component_id))
+                else:
+                    tqdm.write(f"Error: No image in the document. {image_component_id} not found.")
+            for table_component_id in doc_component_id_info["tabid"]:
+                serialized_text_data = self.id_serialized_text_map[table_component_id]
+                if serialized_table_info_list:
+                    best_item = max(
+                        serialized_table_info_list,
+                        key=lambda item: self._recall_score(serialized_text_data, item[1])
+                    )
+                    remapping_data_info_list.append((best_item[0], table_component_id))
+                else:
+                    tqdm.write(f"Error: No table in the document. {table_component_id} not found.")
+            
+            lilac_doc = self.doc_title_lilac_doc_map[doc_title]
+            for index, uuid in remapping_data_info_list:
+                lilac_doc.processed_components[index].component_uuid = uuid
+            
+            lilac_doc.save_to_path(os.path.join("/dataset/process/mmqa_ldoc2_test", doc_title))
+            
+    def _get_clean_text(self, text: str) -> str:
+        pattern = r"[.,!?;:\"'()\[\]{}…~\-—–_/<>《》〈〉·※ㆍ「」『』]"
+        cleaned = re.sub(pattern, " ", text)
+        return cleaned
 
-    def recall_score_with_cleanedtext(self, reference_text: str, text: str) -> float:
-        def remove_punctuation(text: str) -> str:
-            pattern = r"[.,!?;:\"'()\[\]{}…~\-—–_/<>《》〈〉·※ㆍ「」『』]"
-            cleaned = re.sub(pattern, "", text)
-            return cleaned
-        return self.recall_score(remove_punctuation(reference_text), remove_punctuation(text))
-
-    def recall_score(self, reference_text: str, text: str) -> float:
+    def _recall_score(self, reference_text: str, text: str) -> float:
         ref_tokens = reference_text.split()
         pred_tokens = text.split()
 
@@ -408,6 +511,26 @@ class LILaCDocMMQAMapper:
         
         recall = overlap / len(ref_tokens)
         return recall
+    
+    def _serialize_table(self, table_data: tp.List[tp.List[str]]) -> tp.Tuple[str, tp.List[str]]:
+        image_link_pattern = r"\[\[([^\]]+)\]\]"
+        result_text_list: tp.List[str] = []
+        image_url_list: tp.List[str] = []
+        for table_row in table_data:
+            for table_elem in table_row:
+                element_img_list = [item for item in re.findall(image_link_pattern, table_elem)]
+                image_url_list.extend(element_img_list)
+                text = re.sub(image_link_pattern, '', table_elem).strip()
+                if text:
+                    result_text_list.append(text)
+        result_text = " ".join(result_text_list)
+        
+        image_filename_list = []
+        for image_url in image_url_list:
+            filename, _ = get_clean_filename_from_url(image_url)
+            image_filename_list.append(filename)
+        
+        return result_text, image_filename_list
 
 def process_main():
     # Data Embedder
@@ -421,20 +544,21 @@ def process_main():
     sequential_data_embedder.load_json_filelist()
     sequential_data_embedder.run_embedding()
     
+    return
+    
+    # Component Remapper
     lilac_data_mmqa_mapper = LILaCDocMMQAMapper(
         MMQA_PATH,
-        MMQA_REMAP_REFERENCE_EMBEDDING_PT,
-        MMQA_REMAP_IMAGE_EMBEDDING_PT,
-        MMQA_LDOC_FOLDER_TEMP
+        MMQA_LDOC_FOLDER,
+        MMQA_REMAP_IMAGE_REFERENCE_EMBEDDING_FILE,
+        MMQA_REMAP_IMAGE_EMBEDDING_FILE
     )
     lilac_data_mmqa_mapper.load_mmqa_reference()
     lilac_data_mmqa_mapper.load_ldoc_from_folder()
     lilac_data_mmqa_mapper.run_remapping()
-    
-    
-    
+
 
 if __name__ == "__main__":
-    process_main()
+    # process_main()
     
-    # ldoc = LILaCDocument.load_from_path('/dataset/process/mmqa_ldoc/Claire_Coffee.ldoc')
+    ldoc = LILaCDocument.load_from_path('/dataset/process/mmqa_ldoc/Three_Days_of_the_Condor.ldoc')

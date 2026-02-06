@@ -4,14 +4,14 @@ import typing as tp
 
 import numpy as np
 
-from processor import LILaCDocument
+from processor import ProcessedComponent, LILaCDocument
 from common import get_embedding, EmbeddingRequestData
 
 class LILaCGraph:
     def __init__(self, filepath: str) -> None:
         self.filepath: str = filepath
-        self.comp_map: tp.List[dict] = [] # comp id -> component
-        self.comp_doc_map: tp.List[str] = [] # comp id -> doc title
+        self.comp_map: tp.List[tp.Dict] = [] # comp id -> component
+        self.comp_doc_map: tp.List[str] = [] # comp id -> doc title, debugging purpose
         self.comp_embedding_map: np.ndarray = np.array([]) # comp id -> comp embedding
         
         self.subcomp_embeddings_dump: np.ndarray = np.array([]) # comp id -> array slicing(=subcomponent_embedding)
@@ -26,7 +26,7 @@ class LILaCGraph:
         
         try:
             with open(self.filepath, "rb") as f:
-                data = pickle.load(f)
+                data: LILaCGraph = pickle.load(f)
                 self.comp_map = data.comp_map
                 self.comp_doc_map = data.comp_doc_map
                 self.comp_embedding_map = data.comp_embedding_map
@@ -39,49 +39,41 @@ class LILaCGraph:
             return False
     
     @staticmethod
-    def make_graph(remapped_ldoc_path: str, filepath: str) -> bool:
-        assert os.path.exists(remapped_ldoc_path)
+    def make_graph(lilac_doc_folderpath: str, graph_filepath: str) -> bool:
+        assert os.path.exists(lilac_doc_folderpath)
 
-        fnames = [f for f in os.listdir(remapped_ldoc_path) if f.endswith(".ldoc")]
-        ldocs_with_none: tp.List[tp.Optional[LILaCDocument]] = [LILaCDocument.load_from_path(os.path.join(remapped_ldoc_path, f)) for f in fnames]
-        ldocs: tp.List[LILaCDocument] = [doc for doc in ldocs_with_none if doc is not None]
+        lilac_doc_filename_list: tp.List[str] = [filename for filename in os.listdir(lilac_doc_folderpath)]
+        lilac_doc_list_with_none: tp.List[tp.Optional[LILaCDocument]] = [LILaCDocument.load_from_path(os.path.join(lilac_doc_folderpath, f)) for f in lilac_doc_filename_list]
+        lilac_doc_list: tp.List[LILaCDocument] = [lilac_doc for lilac_doc in lilac_doc_list_with_none if lilac_doc is not None]
 
-        # 컴포넌트 수집 및 정렬
-        all_comps = []
-        for ldoc in ldocs:
-            all_comps.extend(ldoc.processed_components)
-        all_comps.sort(key=lambda c: c.id)
+        processed_component_list: tp.List[ProcessedComponent] = []
+        for lilac_doc in lilac_doc_list:
+            processed_component_list.extend(lilac_doc.processed_components)
         
-        N = len(all_comps)
-        if N == 0: return False
-
-        graph = LILaCGraph(filepath)
-        graph.comp_map = [None] * N
-        graph.comp_doc_map = [None] * N
-        graph.edge = [set() for _ in range(N)]
-        graph.subcomp_range_map = np.zeros((N, 2), dtype=np.int64)
-
-        # 임베딩 차원 파악 및 총 서브 컴포넌트 개수 계산
-        sample_emb = all_comps[0].embedding
-        emb_dim = sample_emb.shape[0]
-        total_sub_count = sum(len(c.subcomp_embeddings) for c in all_comps)
-
-        graph.comp_embedding_map = np.empty((N, emb_dim), dtype=np.float32)
-        graph.subcomp_embeddings_dump = np.empty((total_sub_count, emb_dim), dtype=np.float32)
+        total_component_count: int = len(processed_component_list)
+        embedding_dimension = processed_component_list[0].component_embedding.shape[0]
+        total_subcomponent_count = sum(len(processed_component.subcomponent_embeddings) for processed_component in processed_component_list)
+        
+        if total_component_count == 0: return False
+        component_map: tp.List[tp.Optional[tp.Dict]] = [None] * total_component_count
+        component_doc_title_map: tp.List[tp.Optional[str]] = [None] * total_component_count
+        component_edge_map: tp.List[tp.Set] = [set() for _ in range(total_component_count)]
+        subcomponent_embedding_range_map: np.ndarray = np.zeros((total_component_count, 2), dtype=np.int64)
+        
+        component_embedding_map = np.empty((total_component_count, embedding_dimension), dtype=np.float32)
+        subcomponent_embedding_dump = np.empty((total_subcomponent_count, embedding_dimension), dtype=np.float32)
 
         cursor = 0
-        print(f"Processing {N} components and {total_sub_count} sub-embeddings...")
-
-        # 데이터 채우기
-        for ldoc in ldocs:
-            doc_comp_ids = [comp.id for comp in ldoc.processed_components]
+        print(f"Processing {total_component_count} components and {total_subcomponent_count} sub-embeddings...")
+        for lilac_doc in lilac_doc_list:
+            doc_comp_ids = [comp.id for comp in lilac_doc.processed_components]
             
-            for comp in ldoc.processed_components:
+            for comp in lilac_doc.processed_components:
                 cid = comp.id
                 
                 # 기본 정보 할당
                 graph.comp_map[cid] = comp.component
-                graph.comp_doc_map[cid] = ldoc.doc_title
+                graph.comp_doc_map[cid] = lilac_doc.doc_title
                 graph.comp_embedding_map[cid] = comp.embedding
 
                 # 같은 문서 내 모든 컴포넌트와 양방향 연결
@@ -105,8 +97,8 @@ class LILaCGraph:
                     cursor = end
 
         # Pickle 저장 최적화
-        print(f"Saving to {filepath}...")
-        with open(filepath, "wb") as f: # TODO: pickle 대신에 tensor pt 써보기
+        print(f"Saving to {graph_filepath}...")
+        with open(graph_filepath, "wb") as f:
             pickle.dump(graph, f, protocol=pickle.HIGHEST_PROTOCOL) # HIGHEST_PROTOCOL: 4GB 이상의 대용량 객체 처리에 유용
 
         return True

@@ -1,7 +1,7 @@
 import typing as tp
 
 MMQA_PATH: str =                 "/dataset/original/mmqa/"
-MMQA_IMAGE_REFERENCE_PATH: str = "/dataset/original/final_dataset_images/"
+MMQA_IMAGE_REFERENCE_PATH: str = "/dataset/original/mmqa/final_dataset_images/"
 
 MMQA_CRAWL_HTML_FOLDER: str =       "/dataset/crawl/mmqa_html/"
 MMQA_CRAWL_IMAGE_FOLDER: str =      "/dataset/crawl/mmqa_image/"
@@ -21,10 +21,10 @@ MMQA_IMAGE_DESCRIPTION_FAILED_FILE: str = "/dataset/process/mmqa_image_descripti
 MMQA_LDOC_FOLDER: str = "/dataset/process/mmqa_ldoc/"
 MMQA_LDOC_FOLDER_TEMP: str = "/dataset/process/mmqa_ldoc2/"
 
-MMQA_REMAP_REFERENCE_EMBEDDING_PT: str =              "/dataset/process/mmqa_remap_reference_image_embedding.pt"
-MMQA_REMAP_IMAGE_EMBEDDING_PT: str =                  "/dataset/process/mmqa_remap_image_embedding.pt"
-MMQA_REMAP_REFERENCE_EMBEDDING_FAILED_FILEPATH: str = "/dataset/process/mmqa_reference_image_remap_failed.txt"
-MMQA_REMAP_IMAGE_EMBEDDING_FAILED_FILEPATH: str =     "/dataset/process/mmqa_remap_image_embedding_failed.txt"
+MMQA_REMAP_IMAGE_REFERENCE_EMBEDDING_FILE: str =        "/dataset/process/mmqa_remap_reference_image_embedding.pkl"
+MMQA_REMAP_IMAGE_EMBEDDING_FILE: str =                  "/dataset/process/mmqa_remap_image_embedding.pkl"
+MMQA_REMAP_IMAGE_REFERENCE_EMBEDDING_FAILED_FILE: str = "/dataset/process/mmqa_remap_reference_image_embedding_failed.txt"
+MMQA_REMAP_IMAGE_EMBEDDING_FAILED_FILE: str =           "/dataset/process/mmqa_remap_image_embedding_failed.txt"
 
 MMQA_GRAPH_TEMP_FILE: str = "/dataset/graph/lilac_graph_temp.jsonl"
 MMQA_LLM_TEMP_FILE: str =   "/dataset/graph/lilac_llm_temp.jsonl"

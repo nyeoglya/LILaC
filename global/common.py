@@ -2,7 +2,7 @@ import os
 import requests
 import urllib.parse
 import typing as tp
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 import numpy as np
 

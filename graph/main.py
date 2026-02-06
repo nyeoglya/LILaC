@@ -6,8 +6,7 @@ import typing as tp
 
 from lilac_graph import LILaCGraph, LILaCBeamV2
 from query import get_subembeddings, llm_question_query
-from eval.mmqa import mmqa_load
-from eval.utils import query_eval
+from utils.mmqa import mmqa_load_query_answer, mmqa_query_eval
 from config import (
     QWEN_SERVER_URL_LIST,
     MMQA_PROCESS_IMAGE_FOLDER
@@ -183,7 +182,7 @@ def main(query_list: list[str], temp_graph_filepath: str, temp_llm_filepath: str
     return llm_response_list, result_comps_list
 
 if __name__ == "__main__":
-    query_answer_list = mmqa_load(
+    query_answer_list = mmqa_load_query_answer(
         "/dataset/mmqa/MMQA_dev.jsonl",
         "/dataset/mmqa/MMQA_texts.jsonl",
         "/dataset/mmqa/MMQA_images.jsonl",
@@ -211,4 +210,4 @@ if __name__ == "__main__":
         print(f"LLM Answer: {llm_response[i]}") # 모델이 내뱉은 말
         print("-" * 30)
     
-    query_eval(query_answer_list)
+    mmqa_query_eval(query_answer_list)

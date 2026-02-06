@@ -14,8 +14,6 @@ from tqdm import tqdm
 
 import numpy as np
 import torch
-import torch.nn.functional as F
-from transformers import AutoImageProcessor, AutoModel
 from ultralytics import YOLO
 
 from query import IMAGE_OCR_QUERY, EXPLANATION_INSTRUCTION
@@ -273,83 +271,3 @@ class BatchObjectDetector:
             outputs.append(selected)
 
         return outputs
-
-class BatchImageRemapEmbedder:
-    def __init__(
-        self,
-        image_file_list: tp.List[str],
-        device: str = "cuda",
-        image_size: int = 512,
-    ):
-        assert torch.cuda.is_available()
-        
-        MODEL_NAME: str = "facebook/dinov2-base"
-        self.device = device
-
-        self.processor = AutoImageProcessor.from_pretrained(
-            MODEL_NAME,
-            size={"shortest_edge": image_size},
-            do_center_crop=True,
-        )
-        self.model = AutoModel.from_pretrained(MODEL_NAME).to(device)
-        self.model.eval()
-    
-        self.image_filepath_list: tp.List[str] = image_file_list
-        self.progress_bar = tqdm(total=0, desc="Batch Image Embedding...")
-
-    def run_embedding(
-        self,
-        failed_file_path: str,
-        output_pt_path: str,
-        batch_size: int = 16,
-    ):
-        self.progress_bar.total = len(self.image_filepath_list)
-        
-        results = {}
-        failed_files = []
-        for i in range(0, len(self.image_filepath_list), batch_size):
-            batch_paths = self.image_filepath_list[i : i + batch_size]
-
-            images = []
-            valid_paths = []
-            for p in batch_paths:
-                img = cv2.imread(p)
-                if img is None:
-                    self.progress_bar.update(1)
-                    failed_files.append(p)
-                    continue
-                images.append(img)
-                valid_paths.append(p)
-            if not images:
-                continue
-
-            batch_outputs = self.batch_embed(images)
-            self.progress_bar.update(len(valid_paths))
-
-            for path, emb in zip(valid_paths, batch_outputs):
-                results[path] = emb
-
-        torch.save(results, output_pt_path)
-
-        with open(failed_file_path, "w", encoding="utf-8") as failed_file:
-            for path in failed_files:
-                failed_file.write(path + "\n")
-
-    @torch.inference_mode()
-    def batch_embed(
-        self,
-        images: tp.List[np.ndarray],
-    ) -> torch.Tensor:
-        images_rgb = [cv2.cvtColor(img, cv2.COLOR_BGR2RGB) for img in images]
-
-        inputs = self.processor(
-            images=images_rgb,
-            return_tensors="pt",
-        ).to(self.device)
-
-        outputs = self.model(**inputs)
-
-        cls_embeds = outputs.last_hidden_state[:, 0, :]
-        cls_embeds = F.normalize(cls_embeds.float(), dim=-1)
-
-        return cls_embeds.detach().cpu()
