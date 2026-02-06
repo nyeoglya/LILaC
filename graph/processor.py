@@ -12,14 +12,18 @@ import numpy as np
 import pysbd
 
 from config import (
+    MMQA_PATH,
     MMEMBED_SERVER_URL_LIST,
     MMQA_PARSE_JSON_FOLDER,
     MMQA_LDOC_FOLDER,
+    MMQA_LDOC_FOLDER_TEMP,
     MMQA_IMAGE_DESCRIPTION_INFO_FILE,
     MMQA_OBJECT_DETECT_INFO_FILE,
-    MMQA_PROCESS_IMAGE_FOLDER
+    MMQA_PROCESS_IMAGE_FOLDER,
+    MMQA_REMAP_IMAGE_EMBEDDING_PT,
+    MMQA_REMAP_REFERENCE_EMBEDDING_PT
 )
-from utils import (
+from common import (
     get_embedding, get_clean_filename_from_url, get_clean_savepath,
     EmbeddingRequestData
 )
@@ -349,17 +353,36 @@ class SequentialDataEmbedder:
 class LILaCDocMMQAMapper:
     def __init__(
         self,
-        mmqa_image_remap_embedding_filepath: str,
+        mmqa_folderpath: str,
+        mmqa_remap_reference_embedding_filepath: str,
+        mmqa_remap_image_embedding_filepath: str,
+        mmqa_ldoc_folderpath: str,
     ) -> None:
-        pass
+        self.mmqa_folderpath: str = mmqa_folderpath
+        self.mmqa_remap_image_embedding_filepath: str = mmqa_remap_image_embedding_filepath
+        self.mmqa_remap_reference_embedding_filepath: str = mmqa_remap_reference_embedding_filepath
+        self.mmqa_ldoc_folderpath: str = mmqa_ldoc_folderpath
+        
+        self.doc_title_id_map: tp.Dict[str, tp.Tuple[str, ComponentData]] = dict()
 
-    def load_reference_from_file(self): # doc_title -> (serialized text, id) map
-        pass
+    def load_mmqa_reference(self): # doc_title -> (serialized text, id) map
+        assert os.path.exists(self.mmqa_folderpath)
+        assert os.path.exists(self.mmqa_ldoc_folderpath)
+        assert os.path.exists(self.mmqa_remap_image_embedding_filepath)
+        assert os.path.exists(self.mmqa_remap_reference_embedding_filepath)
+        
+        self.doc_title_id_map: tp.Dict[str, tp.Tuple[str, ComponentData]] = dict()
+        with (
+            open(self.mmqa_remap_image_embedding_filepath, "w", encoding="utf-8") as mmqa_remap_image_embedding_file,
+            open(self.mmqa_remap_reference_embedding_filepath, "w", encoding="utf-8") as mmqa_remap_reference_embedding_file,
+            open(os.path.join(self.mmqa_folderpath, "mmqa_text.jsonl"), "w", encoding="utf-8") as mmqa_text_file
+        ):
+            pass
     
     def load_ldoc_from_folder(self): # doc_title -> (serialized text) map
         pass
     
-    def run(self): # save uuid to ldoc if possible
+    def run_remapping(self): # save uuid to ldoc if possible
         pass
 
     def recall_score_with_cleanedtext(self, reference_text: str, text: str) -> float:
@@ -386,7 +409,8 @@ class LILaCDocMMQAMapper:
         recall = overlap / len(ref_tokens)
         return recall
 
-if __name__ == "__main__":
+def process_main():
+    # Data Embedder
     sequential_data_embedder = SequentialDataEmbedder(
         MMQA_PARSE_JSON_FOLDER,
         MMQA_LDOC_FOLDER,
@@ -396,6 +420,21 @@ if __name__ == "__main__":
     )
     sequential_data_embedder.load_json_filelist()
     sequential_data_embedder.run_embedding()
-    # sequential_data_embedder.edge_remapping()
+    
+    lilac_data_mmqa_mapper = LILaCDocMMQAMapper(
+        MMQA_PATH,
+        MMQA_REMAP_REFERENCE_EMBEDDING_PT,
+        MMQA_REMAP_IMAGE_EMBEDDING_PT,
+        MMQA_LDOC_FOLDER_TEMP
+    )
+    lilac_data_mmqa_mapper.load_mmqa_reference()
+    lilac_data_mmqa_mapper.load_ldoc_from_folder()
+    lilac_data_mmqa_mapper.run_remapping()
+    
+    
+    
+
+if __name__ == "__main__":
+    process_main()
     
     # ldoc = LILaCDocument.load_from_path('/dataset/process/mmqa_ldoc/Claire_Coffee.ldoc')

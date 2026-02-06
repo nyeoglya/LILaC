@@ -4,15 +4,15 @@ import time
 import json
 import typing as tp
 
-from lgraph import LILaCGraph, LILaCBeamV2
+from lilac_graph import LILaCGraph, LILaCBeamV2
 from query import get_subembeddings, llm_question_query
 from eval.mmqa import mmqa_load
 from eval.utils import query_eval
 from config import (
     QWEN_SERVER_URL_LIST,
-    MMQA_PROCESS_IMAGE_FOLDER, FINAL_RESULT_FILENAME, GRAPH_TEMP_FILE, LLM_TEMP_FILE
+    MMQA_PROCESS_IMAGE_FOLDER
 )
-from utils import (
+from common import (
     get_embedding, get_llm_response,
     EmbeddingRequestData
 )
@@ -38,11 +38,6 @@ def code_timer(tracker, before, label):
 
 # end-to-end pipeline (with given datasets)
 def process_query_list(query_list: list[str], temp_filepath: str):
-    BEAM_SIZE = 30
-    TOP_K = 3
-    MAX_HOP = 10
-    GRAPH_FILE_PATH = "wiki.lgraph"
-    
     # 기존 결과 로드 (캐싱)
     cache = {}
     if os.path.exists(temp_filepath):

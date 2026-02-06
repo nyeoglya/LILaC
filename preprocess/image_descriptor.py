@@ -19,7 +19,7 @@ from transformers import AutoImageProcessor, AutoModel
 from ultralytics import YOLO
 
 from query import IMAGE_OCR_QUERY, EXPLANATION_INSTRUCTION
-from utils import get_llm_response, get_clean_savepath
+from common import get_llm_response, get_clean_savepath
 
 
 class SequentialImageNormalizer: # resize + mapping

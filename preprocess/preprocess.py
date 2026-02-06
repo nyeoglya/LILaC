@@ -1,7 +1,6 @@
 import typing as tp
 
-# from utils import convert_image_to_png
-from utils_mmqa import mmqa_get_clean_wikidocs_titles
+from utils.mmqa import mmqa_get_clean_wikidocs_titles
 
 from parser.wiki import WikiBatchParser
 from crawler.wiki import WikiBatchCrawler, BatchWikiImageCrawler

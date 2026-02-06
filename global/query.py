@@ -2,7 +2,7 @@ import typing as tp
 
 import numpy as np
 
-from utils import (
+from global.common import (
     get_clean_savepath_from_url, get_query_embedding, get_llm_response
 )
 

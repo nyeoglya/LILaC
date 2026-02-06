@@ -13,7 +13,7 @@ from requests.models import Response
 
 from tqdm import tqdm
 
-from utils import (
+from common import (
     get_clean_savepath, get_clean_savepath_from_url,
     save_html_content_to_file, save_image_to_file
 )

@@ -5,7 +5,7 @@ import typing as tp
 import numpy as np
 
 from processor import LILaCDocument
-from utils import get_embedding, EmbeddingRequestData
+from common import get_embedding, EmbeddingRequestData
 
 class LILaCGraph:
     def __init__(self, filepath: str) -> None:
@@ -355,9 +355,6 @@ class LILaCBeamV2:
         return [self.lilac_graph.comp_doc_map[nid] for nid in self.top_comp_ids(top_k)]
 
 if __name__ == "__main__":
-    LDOC_FOLDER = "/dataset/process/mmqa_ldoc/"
-    GRAPH_FILE_PATH = "wiki.lgraph"
-    
     LILaCGraph.make_graph(LDOC_FOLDER, GRAPH_FILE_PATH)
     lilac_graph = LILaCGraph(GRAPH_FILE_PATH)
     lilac_graph.load()

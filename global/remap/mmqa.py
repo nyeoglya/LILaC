@@ -5,7 +5,14 @@ import typing as tp
 
 from utils_mmqa import mmqa_get_clean_wikidocs_titles
 from image_descriptor import BatchImageRemapEmbedder
-from config import MMQA_IMAGE_REMAP_EMBEDDING_FAILED_FILEPATH, MMQA_IMAGE_REMAP_EMBEDDING_PT
+from config import (
+    MMQA_PATH,
+    MMQA_IMAGE_REFERENCE_PATH,
+    MMQA_REMAP_IMAGE_EMBEDDING_FAILED_FILEPATH,
+    MMQA_REMAP_REFERENCE_EMBEDDING_FAILED_FILEPATH,
+    MMQA_REMAP_IMAGE_EMBEDDING_PT,
+    MMQA_REMAP_REFERENCE_EMBEDDING_PT
+)
 
 def mmqa_find_component_from_file(mmqa_path: str) -> tp.Dict[str, tp.Dict[str, tp.List[str]]]:
     clean_titles: tp.List[str] = mmqa_get_clean_wikidocs_titles(mmqa_path)
@@ -46,24 +53,22 @@ def mmqa_find_component_from_file(mmqa_path: str) -> tp.Dict[str, tp.Dict[str, t
     return result
 
 if __name__ == "__main__":
-    '''
-    mmqa_component_map = mmqa_find_component_from_file("/dataset/original/")
-    mmqa_imagepath_list = [datum for data in mmqa_component_map.values() for datum in data["imgid"]]
+    mmqa_component_map = mmqa_find_component_from_file(MMQA_PATH)
+    processed_imagepath_list = [datum for data in mmqa_component_map.values() for datum in data["imgid"]]
     mmqa_fullimage_map = {}
-    for fname in os.listdir("/dataset/original/final_dataset_images/"):
+    for fname in os.listdir(MMQA_IMAGE_REFERENCE_PATH):
         stem, ext = os.path.splitext(fname)
         if ext:
             mmqa_fullimage_map[stem] = ext.lstrip(".")
 
-    result_list = []
-    for data in mmqa_imagepath_list:
+    mmqa_reference_image_list = []
+    for data in processed_imagepath_list:
         if data in mmqa_fullimage_map:
-            result_list.append(f"/dataset/original/final_dataset_images/{data}.{mmqa_fullimage_map[data]}")
+            mmqa_reference_image_list.append(os.path.join(MMQA_IMAGE_REFERENCE_PATH, "f{data}.{mmqa_fullimage_map[data]}"))
 
-    embedder = BatchImageEmbedder(result_list)
-    embedder.run(MMQA_REFERENCE_REMAP_EMBEDDING_FAILED_FILEPATH, MMQA_REFERENCE_REMAP_EMBEDDING_PT)
-    '''
+    embedder = BatchImageRemapEmbedder(mmqa_reference_image_list)
+    embedder.run_embedding(MMQA_REMAP_REFERENCE_EMBEDDING_FAILED_FILEPATH, MMQA_REMAP_REFERENCE_EMBEDDING_PT)
     
-    mmqa_imagepath_list = ["/dataset/process/mmqa_image/" + filename for filename in os.listdir("/dataset/process/mmqa_image")]
-    embedder = BatchImageRemapEmbedder(mmqa_imagepath_list)
-    embedder.run_embedding(MMQA_IMAGE_REMAP_EMBEDDING_FAILED_FILEPATH, MMQA_IMAGE_REMAP_EMBEDDING_PT)
+    processed_imagepath_list = ["/dataset/process/mmqa_image/" + filename for filename in os.listdir("/dataset/process/mmqa_image")]
+    embedder = BatchImageRemapEmbedder(processed_imagepath_list)
+    embedder.run_embedding(MMQA_REMAP_IMAGE_EMBEDDING_FAILED_FILEPATH, MMQA_REMAP_IMAGE_EMBEDDING_PT)
