@@ -26,12 +26,12 @@ MMQA_REMAP_IMAGE_EMBEDDING_FILE: str =                  "/dataset/process/mmqa_r
 MMQA_REMAP_IMAGE_REFERENCE_EMBEDDING_FAILED_FILE: str = "/dataset/process/mmqa_remap_reference_image_embedding_failed.txt"
 MMQA_REMAP_IMAGE_EMBEDDING_FAILED_FILE: str =           "/dataset/process/mmqa_remap_image_embedding_failed.txt"
 
-MMQA_QUERY_CACHE_FILE: str = "/dataset/process/mmqa_query_cache.jsonl"
+MMQA_QUERY_CACHE_FILE: str = "/dataset/process/mmqa_query_cache.pkl"
 
-MMQA_GRAPH_TEMP_FILE: str =      "/dataset/graph/lilac_graph_temp.jsonl"
-MMQA_LLM_TEMP_FILE: str =        "/dataset/graph/lilac_llm_temp.jsonl"
-MMQA_FINAL_GRAPH_FILENAME: str = "/dataset/graph/mmqa.lgraph"
-MMQA_FINAL_FILENAME: str =       "/dataset/graph/lilac_query_answers.jsonl"
+MMQA_FINAL_GRAPH_FILENAME: str =            "/dataset/graph/mmqa.lgraph"
+MMQA_LLM_ANSWER_RESULT_FILE: str =          "/dataset/graph/llm_answer.jsonl"
+MMQA_FINAL_QUERY_ANSWER_FILENAME: str =     "/dataset/graph/lilac_query_answers.jsonl"
+MMQA_GRAPH_RETRIEVAL_RESULT_FILENAME: str = "/dataset/graph/retrieval_result.jsonl"
 
 QWEN_SERVER_URL_LIST: tp.List[str] = ["http://lilac-qwen:8000", "http://lilac-qwen:8001", "http://lilac-qwen:8002", "http://lilac-qwen:8003"]
 MMEMBED_SERVER_URL_LIST: tp.List[str] = ["http://lilac-mmembed:8000", "http://lilac-mmembed:8001", "http://lilac-mmembed:8002", "http://lilac-mmembed:8003"]
@@ -43,5 +43,5 @@ MODALITY_INSTRUCTION = {
 }
 
 BEAM_SIZE = 30
-TOP_K = 3
-MAX_HOP = 10
+TOP_K = 9
+MAX_HOP = 100
