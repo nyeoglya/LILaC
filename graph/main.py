@@ -1,3 +1,4 @@
+import pickle
 import typing as tp
 
 from embed import SequentialComponentEmbedder
@@ -6,23 +7,18 @@ from utils.mmqa import (
     MMQAQueryEmbedding,
     mmqa_load_query_answer, mmqa_cache_query_process, mmqa_load_cached_query_data
 )
-from test import mmqa_embed_test
+from test import mmqa_embed_knn_test, mmqa_graph_retrieval_test
 from remap import LILaCDocMMQAMapper
-
+from process import process_query_list_with_cached_data
 from config import (
-    MMQA_PATH,
+    MMQA_PATH, MMQA_LDOC_FOLDER, MMQA_PROCESS_IMAGE_FOLDER,
     MMQA_PARSE_JSON_FOLDER,
-    MMQA_LDOC_FOLDER,
-    MMQA_IMAGE_DESCRIPTION_INFO_FILE,
-    MMQA_OBJECT_DETECT_INFO_FILE,
-    MMQA_PROCESS_IMAGE_FOLDER,
-    MMQA_REMAP_IMAGE_EMBEDDING_FILE,
-    MMQA_REMAP_IMAGE_REFERENCE_EMBEDDING_FILE,
-    MMQA_REMAPPED_LDOC_FOLDER,
-    QWEN_SERVER_URL_LIST,
-    MMEMBED_SERVER_URL_LIST,
+    MMQA_IMAGE_DESCRIPTION_INFO_FILE, MMQA_OBJECT_DETECT_INFO_FILE,
+    MMQA_REMAP_IMAGE_EMBEDDING_FILE, MMQA_REMAP_IMAGE_REFERENCE_EMBEDDING_FILE, MMQA_REMAPPED_LDOC_FOLDER,
+    QWEN_SERVER_URL_LIST, MMEMBED_SERVER_URL_LIST,
     MMQA_QUERY_CACHE_FILE,
-    MMQA_FINAL_GRAPH_FILENAME,
+    MMQA_FINAL_GRAPH_FILENAME, MMQA_FINAL_QUERY_ANSWER_FILENAME, MMQA_GRAPH_RETRIEVAL_RESULT_FILENAME,
+    BEAM_SIZE, TOP_K, MAX_HOP
 )
 
 def main():
@@ -58,37 +54,39 @@ def main():
     #     MMQA_QUERY_CACHE_FILE
     # )
     
-    '''Verify MM-Embed Embedding'''
-    mmqa_cached_query_data_list: tp.List[MMQAQueryEmbedding] = mmqa_load_cached_query_data(MMQA_QUERY_CACHE_FILE)
+    '''Load Cached Data & Ground Truth Data'''
+    mmqa_cached_query_embedding_list: tp.List[MMQAQueryEmbedding] = mmqa_load_cached_query_data(MMQA_QUERY_CACHE_FILE)
     query_answer_list = mmqa_load_query_answer(MMQA_PATH)
-    mmqa_embed_test(query_answer_list, mmqa_cached_query_data_list, MMQA_REMAPPED_LDOC_FOLDER)
+    
+    '''Verify MM-Embed Embedding'''
+    mmqa_embed_knn_test(query_answer_list, mmqa_cached_query_embedding_list, MMQA_REMAPPED_LDOC_FOLDER, 9)
     
     '''Graph Construction'''
     # LILaCGraph.make_graph(MMQA_REMAPPED_LDOC_FOLDER, MMQA_FINAL_GRAPH_FILENAME)
     # lilac_graph: LILaCGraph = LILaCGraph.load_graph(MMQA_FINAL_GRAPH_FILENAME)
     
-    '''LILaC Query''' # TODO
-    # llm_response, result_comps_list = main(query_list, GRAPH_TEMP_FILE, LLM_TEMP_FILE)
+    '''LILaC Graph Retrieval'''
+    retrieval_result_list: tp.List[tp.Dict] = process_query_list_with_cached_data(
+        MMQA_FINAL_GRAPH_FILENAME,
+        mmqa_cached_query_embedding_list,
+        BEAM_SIZE,
+        TOP_K,
+        MAX_HOP,
+        MMQA_GRAPH_RETRIEVAL_RESULT_FILENAME
+    )
+    mmqa_graph_retrieval_test(query_answer_list, retrieval_result_list)
+    
+    '''LLM Query''' # TODO
+    # llm_response_list = batch_llm_response(result_components_list)
     # for ind in range(len(query_answer_list)):
-    #     query_answer_list[ind].llm_answer = llm_response[ind]
-    #     query_answer_list[ind].result_comps = result_comps_list[ind]
+    #     query_answer_list[ind].llm_answer = llm_response_list[ind]
+    #     query_answer_list[ind].result_comps = result_components_list[ind][""]
     
-    # users_list_of_dict = [asdict(user) for user in query_answer_list]
-    # with open(FINAL_RESULT_FILENAME, "w", encoding="utf-8") as f:
-    #     json.dump(users_list_of_dict, f, indent=4, ensure_ascii=False)
-    # print(f"+ Save result to {FINAL_RESULT_FILENAME}")
+    # with open(???, "w", encoding="utf-8") as query_answer_list_file:
+    #     pickle.dump(query_answer_list)
+    # print(f"+ Save result to {MMQA_FINAL_QUERY_ANSWER_FILENAME}")
     
-    # from query import subquery_divide_query
-    # sub_query_list = [get_llm_response(QWEN_SERVER_URL_LIST[0], subquery_divide_query(text)).replace("\n","").split(";") for text in query_list]
-    # for i in range(len(query_answer_list)):
-    #     print(f"Q: {query_list[i]}")
-    #     print(f"Subqueries: {sub_query_list[i]}") # 분해된 결과 확인
-    #     # print(f"Retrieved IDs: {result_comps_list[i]}") # 찾은 컴포넌트 ID
-    #     print(f"Actual Answer: {query_answer_list[i].answer}") # 정답지
-    #     print(f"LLM Answer: {llm_response[i]}") # 모델이 내뱉은 말
-    #     print("-" * 30)
-    
-    '''LILaC Evaluation''' # TODO
+    '''Query Evaluation''' # TODO
     # mmqa_query_eval(query_answer_list)
 
 if __name__ == "__main__":

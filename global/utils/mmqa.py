@@ -1,5 +1,6 @@
 import os
 import json
+import pickle
 import traceback
 import typing as tp
 import urllib.parse
@@ -25,8 +26,8 @@ class MMQAQueryAnswer:
     qid: str
     question: str
     answer: tp.List[str]
-    supporting_context_id: str
-    supportng_context_type: str
+    supporting_context_id_list: tp.List[str]
+    supportng_context_type_list: tp.List[str]
     supporting_context: tp.Any = None
     
     llm_answer: tp.Optional[str] = None
@@ -91,23 +92,24 @@ def mmqa_load_query_answer(mmqa_folderpath: str) -> tp.List[MMQAQueryAnswer]:
     result_query_answer: tp.List[MMQAQueryAnswer] = []
     
     for mmqa_line in tqdm(mmqa_dev_file, desc="Loading Query-Answer Pair..."):
-        ctx_info = mmqa_line["supporting_context"][0] 
+        supporting_context_id_list = [supporting_context_info["doc_id"] for supporting_context_info in mmqa_line["supporting_context"]]
+        supportng_context_type_list = [supporting_context_info["doc_part"] for supporting_context_info in mmqa_line["supporting_context"]]
         
         new_query_answer = MMQAQueryAnswer(
             qid=mmqa_line["qid"],
             question=mmqa_line["question"],
             answer=[data["answer"] for data in mmqa_line["answers"]],
-            supporting_context_id=ctx_info["doc_id"],
-            supportng_context_type=ctx_info["doc_part"]
+            supporting_context_id_list=supporting_context_id_list,
+            supportng_context_type_list=supportng_context_type_list
         )
         
         # 매핑 로직
-        if new_query_answer.supportng_context_type == "text":
-            new_query_answer.supporting_context = mmqa_text_map.get(new_query_answer.supporting_context_id)
-        elif new_query_answer.supportng_context_type == "image":
-            new_query_answer.supporting_context = mmqa_img_map.get(new_query_answer.supporting_context_id)
-        elif new_query_answer.supportng_context_type == "table":
-            new_query_answer.supporting_context = mmqa_table_map.get(new_query_answer.supporting_context_id)
+        if new_query_answer.supportng_context_type_list == "text":
+            new_query_answer.supporting_context = mmqa_text_map.get(new_query_answer.supporting_context_id_list)
+        elif new_query_answer.supportng_context_type_list == "image":
+            new_query_answer.supporting_context = mmqa_img_map.get(new_query_answer.supporting_context_id_list)
+        elif new_query_answer.supportng_context_type_list == "table":
+            new_query_answer.supporting_context = mmqa_table_map.get(new_query_answer.supporting_context_id_list)
         
         result_query_answer.append(new_query_answer)
     
@@ -217,7 +219,7 @@ def get_mmqa_subquery_and_subembedding_list(embedding_server_url: str, llm_serve
 
 def mmqa_cache_query_process(mmqa_path: str, llm_server_url: str, embedding_server_url: str, failed_filepath: str, result_filepath: str) -> bool:
     query_answer_list: tp.List[MMQAQueryAnswer] = mmqa_load_query_answer(mmqa_path)
-    with open(result_filepath, 'a', encoding='utf-8') as result_file:
+    with open(result_filepath, 'ab') as result_file:
         for query_answer_data in tqdm(query_answer_list, desc="Caching Subquery and Query Embedding..."):
             try:
                 query_embedding: np.ndarray = get_embedding(embedding_server_url, EmbeddingRequestData(query_answer_data.question))
@@ -226,26 +228,33 @@ def mmqa_cache_query_process(mmqa_path: str, llm_server_url: str, embedding_serv
                     'qid': query_answer_data.qid,
                     'query': query_answer_data.question,
                     'subqueries': subquery_list,
-                    'embedding': query_embedding.tolist(),
-                    'subembedding_with_modality': subembedding_list.tolist(),
+                    'embedding': query_embedding,
+                    'subembedding_with_modality': subembedding_list,
                 }
-                result_file.write(json.dumps(record, ensure_ascii=False) + '\n')
+                pickle.dump(record, result_file, protocol=pickle.HIGHEST_PROTOCOL)
                 result_file.flush()
             except Exception as e:
                 traceback.print_exc()
-                with open(failed_filepath, "a") as error_file:
+                with open(failed_filepath, "a", encoding='utf-8') as error_file:
                     error_file.write(f"Error on QID: {query_answer_data.qid}, Error: {str(e)}\n")
     return True
 
 def mmqa_load_cached_query_data(data_filepath: str) -> tp.List[MMQAQueryEmbedding]:
     query_embedding_list: tp.List[MMQAQueryEmbedding] = []
-    with open(data_filepath, 'r', encoding='utf-8') as data_file:
-        for data_line in tqdm(data_file, desc="Loading Cached Query Data..."):
-            json_data = json.loads(data_line)
-            new_mmqa_query_embedding = MMQAQueryEmbedding(
-                qid=json_data["qid"],
-                embedding=json_data["embedding"],
-                subcomponent_embedding_list=[np.array(subcomponent_embedding) for subcomponent_embedding in json_data["subembedding_with_modality"]]
-            )
-            query_embedding_list.append(new_mmqa_query_embedding)
+    file_size = os.path.getsize(data_filepath)
+    with open(data_filepath, 'rb') as data_file:
+        with tqdm(total=file_size, unit='B', unit_scale=True, desc="Loading Query Embedding Data...") as pbar:
+            while True:
+                try:
+                    data = pickle.load(data_file)
+                    new_mmqa_query_embedding = MMQAQueryEmbedding(
+                        qid=data["qid"],
+                        embedding=data["embedding"],
+                        subcomponent_embedding_list=data["subembedding_with_modality"]
+                    )
+                    query_embedding_list.append(new_mmqa_query_embedding)
+                    pbar.n = data_file.tell()
+                    pbar.update(0)
+                except EOFError:
+                    break
     return query_embedding_list
