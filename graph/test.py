@@ -2,10 +2,23 @@ import os
 import typing as tp
 
 from graph import LILaCDocument, ProcessedComponent
-from utils.mmqa import MMQAQueryAnswer
+from utils.mmqa import MMQAQueryAnswer, MMQAQueryEmbedding
 
-def mmqa_embed_test(query_answer_list: tp.List[MMQAQueryAnswer], ldoc_folderpath: str):
+def mmqa_embed_test(query_answer_list: tp.List[MMQAQueryAnswer], query_embedding_list: tp.List[MMQAQueryEmbedding], ldoc_folderpath: str):
+    assert len(query_answer_list) == len(query_embedding_list)
+    
     query_list = [query_answer.question for query_answer in query_answer_list]
+    for ldoc_filename in os.listdir(ldoc_folderpath):
+        ldoc_filepath = os.path.join(ldoc_folderpath, ldoc_filename)
+        ldoc = LILaCDocument.load_from_path(ldoc_filepath)
+        if not ldoc:
+            print("continue")
+            continue
+        for processed_component in ldoc.processed_components:
+            if processed_component.component_uuid:
+                pass
+
+def mmqa_verify_ldoc(ldoc_folderpath: str): # TODO: temp function
     collision_samples = []
     i = 0
     for ldoc_filename in os.listdir(ldoc_folderpath):

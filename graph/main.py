@@ -2,7 +2,10 @@ import typing as tp
 
 from embed import SequentialComponentEmbedder
 from graph import LILaCGraph, LILaCDocument, ProcessedComponent
-from utils.mmqa import mmqa_load_query_answer
+from utils.mmqa import (
+    MMQAQueryEmbedding,
+    mmqa_load_query_answer, mmqa_cache_query_process, mmqa_load_cached_query_data
+)
 from test import mmqa_embed_test
 from remap import LILaCDocMMQAMapper
 
@@ -16,7 +19,10 @@ from config import (
     MMQA_REMAP_IMAGE_EMBEDDING_FILE,
     MMQA_REMAP_IMAGE_REFERENCE_EMBEDDING_FILE,
     MMQA_REMAPPED_LDOC_FOLDER,
-    MMQA_FINAL_GRAPH_FILENAME
+    QWEN_SERVER_URL_LIST,
+    MMEMBED_SERVER_URL_LIST,
+    MMQA_QUERY_CACHE_FILE,
+    MMQA_FINAL_GRAPH_FILENAME,
 )
 
 def main():
@@ -43,13 +49,25 @@ def main():
     # lilac_data_mmqa_mapper.run_remapping(MMQA_REMAPPED_LDOC_FOLDER)
     # print(sum([len(idmap["txtid"]) + len(idmap["tabid"]) + len(idmap["imgid"]) for idmap in lilac_data_mmqa_mapper.doc_title_id_map.values()]))
     
+    '''Query Caching'''
+    # mmqa_cache_query_process(
+    #     MMQA_PATH,
+    #     QWEN_SERVER_URL_LIST[0],
+    #     MMEMBED_SERVER_URL_LIST[0],
+    #     "mmqa_query_caching_error_log.txt",
+    #     MMQA_QUERY_CACHE_FILE
+    # )
+    
+    '''Verify MM-Embed Embedding'''
+    mmqa_cached_query_data_list: tp.List[MMQAQueryEmbedding] = mmqa_load_cached_query_data(MMQA_QUERY_CACHE_FILE)
+    query_answer_list = mmqa_load_query_answer(MMQA_PATH)
+    mmqa_embed_test(query_answer_list, mmqa_cached_query_data_list, MMQA_REMAPPED_LDOC_FOLDER)
+    
     '''Graph Construction'''
     # LILaCGraph.make_graph(MMQA_REMAPPED_LDOC_FOLDER, MMQA_FINAL_GRAPH_FILENAME)
     # lilac_graph: LILaCGraph = LILaCGraph.load_graph(MMQA_FINAL_GRAPH_FILENAME)
     
-    # query_answer_list = mmqa_load_query_answer(MMQA_PATH)
-    mmqa_embed_test([], MMQA_REMAPPED_LDOC_FOLDER)
-    
+    '''LILaC Query''' # TODO
     # llm_response, result_comps_list = main(query_list, GRAPH_TEMP_FILE, LLM_TEMP_FILE)
     # for ind in range(len(query_answer_list)):
     #     query_answer_list[ind].llm_answer = llm_response[ind]
@@ -70,6 +88,7 @@ def main():
     #     print(f"LLM Answer: {llm_response[i]}") # 모델이 내뱉은 말
     #     print("-" * 30)
     
+    '''LILaC Evaluation''' # TODO
     # mmqa_query_eval(query_answer_list)
 
 if __name__ == "__main__":

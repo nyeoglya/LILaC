@@ -70,7 +70,7 @@ def get_subembeddings(server_url: str, query_text: str, image_filepath: str = ""
     return np.stack(embeddings)
 
 def subquery_divide_query(query: str) -> str:
-    return SUBQUERY_DIVIDE_QUERY.format(query)
+    return SUBQUERY_DIVIDE_QUERY.format(query=query)
 
 def subquery_modality_query(subquery: str) -> str:
     return SUBQUERY_MODALITY_QUERY.format(subquery=subquery)

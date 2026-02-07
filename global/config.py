@@ -26,6 +26,8 @@ MMQA_REMAP_IMAGE_EMBEDDING_FILE: str =                  "/dataset/process/mmqa_r
 MMQA_REMAP_IMAGE_REFERENCE_EMBEDDING_FAILED_FILE: str = "/dataset/process/mmqa_remap_reference_image_embedding_failed.txt"
 MMQA_REMAP_IMAGE_EMBEDDING_FAILED_FILE: str =           "/dataset/process/mmqa_remap_image_embedding_failed.txt"
 
+MMQA_QUERY_CACHE_FILE: str = "/dataset/process/mmqa_query_cache.jsonl"
+
 MMQA_GRAPH_TEMP_FILE: str =      "/dataset/graph/lilac_graph_temp.jsonl"
 MMQA_LLM_TEMP_FILE: str =        "/dataset/graph/lilac_llm_temp.jsonl"
 MMQA_FINAL_GRAPH_FILENAME: str = "/dataset/graph/mmqa.lgraph"
@@ -33,6 +35,12 @@ MMQA_FINAL_FILENAME: str =       "/dataset/graph/lilac_query_answers.jsonl"
 
 QWEN_SERVER_URL_LIST: tp.List[str] = ["http://lilac-qwen:8000", "http://lilac-qwen:8001", "http://lilac-qwen:8002", "http://lilac-qwen:8003"]
 MMEMBED_SERVER_URL_LIST: tp.List[str] = ["http://lilac-mmembed:8000", "http://lilac-mmembed:8001", "http://lilac-mmembed:8002", "http://lilac-mmembed:8003"]
+
+MODALITY_INSTRUCTION = {
+    "text": "Given a question, retrieve text passages that answer the question",
+    "table": "Given a question, retrieve table-format texts that answer the question. A table can include an image within a cell.",
+    "image": "Given a question, retrieve image-description (or OCR) pairs that answer the question"
+}
 
 BEAM_SIZE = 30
 TOP_K = 3

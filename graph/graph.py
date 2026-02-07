@@ -26,7 +26,7 @@ class LILaCGraph:
             edge_count = sum([len(component_edge_list) for component_edge_list in lilac_graph.component_edge_map])
             print(f"Complete loading graph. Total {len(lilac_graph.component_id_map)} components, {edge_count} edges")
             return lilac_graph
-        
+    
     @staticmethod
     def make_graph(lilac_doc_folderpath: str, graph_filepath: str) -> bool:
         assert os.path.exists(lilac_doc_folderpath)

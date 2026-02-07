@@ -1,13 +1,24 @@
 import os
 import json
+import traceback
 import typing as tp
 import urllib.parse
 
-import json
-import typing as tp
+import numpy as np
+from tqdm import tqdm
 
 from dataclasses import dataclass, field
 from evaluation import normalize_answer, extract_answer_from_f_call
+from query import subquery_divide_query, subquery_modality_query
+from config import (
+    QWEN_SERVER_URL_LIST,
+    MMEMBED_SERVER_URL_LIST,
+    MODALITY_INSTRUCTION,
+)
+from common import (
+    get_embedding, get_llm_response, get_query_embedding,
+    EmbeddingRequestData
+)
 
 @dataclass
 class MMQAQueryAnswer:
@@ -20,6 +31,12 @@ class MMQAQueryAnswer:
     
     llm_answer: tp.Optional[str] = None
     result_comps: tp.List[dict] = field(default_factory=list)
+
+@dataclass
+class MMQAQueryEmbedding:
+    qid: str
+    embedding: np.ndarray
+    subcomponent_embedding_list: tp.List[np.ndarray]
 
 
 def mmqa_query_eval(query_answer_list: tp.List[MMQAQueryAnswer]) -> float:
@@ -73,7 +90,7 @@ def mmqa_load_query_answer(mmqa_folderpath: str) -> tp.List[MMQAQueryAnswer]:
     
     result_query_answer: tp.List[MMQAQueryAnswer] = []
     
-    for mmqa_line in mmqa_dev_file:
+    for mmqa_line in tqdm(mmqa_dev_file, desc="Loading Query-Answer Pair..."):
         ctx_info = mmqa_line["supporting_context"][0] 
         
         new_query_answer = MMQAQueryAnswer(
@@ -181,3 +198,54 @@ def mmqa_get_title_component_map_from_file(mmqa_folderpath: str) -> tp.Dict[str,
 
     print(f"Extract {len(result)} wiki titles with components")
     return result
+
+def get_mmqa_subquery_and_subembedding_list(embedding_server_url: str, llm_server_url: str, query_text: str) -> tp.Tuple[tp.List[str], np.ndarray]:
+    query: str = subquery_divide_query(query_text)
+    subquery_response: str = get_llm_response(embedding_server_url, query)
+    subquery_list: tp.List[str] = subquery_response.replace("\n","").split(";")
+    cleaned_subquery_list: tp.List[str] = [s.strip() for s in subquery_list if s.strip()]
+    
+    embedding_list: tp.List[np.ndarray] = []
+    for cleaned_subquery in cleaned_subquery_list:
+        raw_modality: str = get_llm_response(embedding_server_url, subquery_modality_query(cleaned_subquery))
+        modality_key: str = raw_modality.strip().lower().replace(".", "")
+        modality_instruction: str = MODALITY_INSTRUCTION.get(modality_key, MODALITY_INSTRUCTION["text"])
+        result_embedding: np.ndarray = get_query_embedding(llm_server_url, modality_instruction, cleaned_subquery, "")
+        embedding_list.append(result_embedding)
+        
+    return cleaned_subquery_list, np.stack(embedding_list) if embedding_list else np.array([])
+
+def mmqa_cache_query_process(mmqa_path: str, llm_server_url: str, embedding_server_url: str, failed_filepath: str, result_filepath: str) -> bool:
+    query_answer_list: tp.List[MMQAQueryAnswer] = mmqa_load_query_answer(mmqa_path)
+    with open(result_filepath, 'a', encoding='utf-8') as result_file:
+        for query_answer_data in tqdm(query_answer_list, desc="Caching Subquery and Query Embedding..."):
+            try:
+                query_embedding: np.ndarray = get_embedding(embedding_server_url, EmbeddingRequestData(query_answer_data.question))
+                subquery_list, subembedding_list = get_mmqa_subquery_and_subembedding_list(embedding_server_url, llm_server_url, query_answer_data.question)
+                record: tp.Dict[str, tp.Any] = {
+                    'qid': query_answer_data.qid,
+                    'query': query_answer_data.question,
+                    'subqueries': subquery_list,
+                    'embedding': query_embedding.tolist(),
+                    'subembedding_with_modality': subembedding_list.tolist(),
+                }
+                result_file.write(json.dumps(record, ensure_ascii=False) + '\n')
+                result_file.flush()
+            except Exception as e:
+                traceback.print_exc()
+                with open(failed_filepath, "a") as error_file:
+                    error_file.write(f"Error on QID: {query_answer_data.qid}, Error: {str(e)}\n")
+    return True
+
+def mmqa_load_cached_query_data(data_filepath: str) -> tp.List[MMQAQueryEmbedding]:
+    query_embedding_list: tp.List[MMQAQueryEmbedding] = []
+    with open(data_filepath, 'r', encoding='utf-8') as data_file:
+        for data_line in tqdm(data_file, desc="Loading Cached Query Data..."):
+            json_data = json.loads(data_line)
+            new_mmqa_query_embedding = MMQAQueryEmbedding(
+                qid=json_data["qid"],
+                embedding=json_data["embedding"],
+                subcomponent_embedding_list=[np.array(subcomponent_embedding) for subcomponent_embedding in json_data["subembedding_with_modality"]]
+            )
+            query_embedding_list.append(new_mmqa_query_embedding)
+    return query_embedding_list
