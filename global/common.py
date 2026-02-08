@@ -6,6 +6,9 @@ from dataclasses import dataclass
 
 import numpy as np
 
+def get_clean_savepath_from_url_with_custom_extension(image_save_folder_path: str, original_url: str, extension: str) -> str:
+    name_without_ext, _ = get_clean_filename_and_extension_from_url(original_url)
+    return get_clean_savepath(image_save_folder_path, name_without_ext, extension)
 
 def get_clean_savepath_from_url(image_save_folder_path: str, original_url: str) -> str:
     name_without_ext, extension = get_clean_filename_and_extension_from_url(original_url)
@@ -109,10 +112,11 @@ def get_batch_embedding(server_url: str, request_data_list: tp.List[EmbeddingReq
     embeddings = [np.array(vec, dtype=np.float32) for vec in vectors]
     return embeddings
 
-def get_llm_response(server_url: str, text: str, image_filepath_list: tp.List[str] = []):
+def get_llm_response(server_url: str, text: str, image_filepath_list: tp.List[str] = [], max_tokens: int = 256):
     payload = {
         "text": text,
         "img_paths": image_filepath_list,
+        "max_tokens": max_tokens
     }
 
     r = requests.post(f"{server_url}/generate", json=payload, timeout=120)

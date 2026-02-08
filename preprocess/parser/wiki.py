@@ -13,7 +13,7 @@ from bs4.element import ResultSet
 from tqdm import tqdm
 
 from common import get_clean_savepath
-from base_data_structure import (
+from schema import (
     ComponentData, BasePage, ParagraphComponent, ImageComponent, TableComponent
 )
 

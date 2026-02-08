@@ -9,12 +9,13 @@ import numpy as np
 from tqdm import tqdm
 
 from dataclasses import dataclass, field
-from evaluation import normalize_answer, extract_answer_from_f_call
-from query import subquery_divide_query, subquery_modality_query
+from query import (
+    MODALITY_INSTRUCTION_QUERY,
+    subquery_divide_query, subquery_modality_query
+)
 from config import (
     QWEN_SERVER_URL_LIST,
     MMEMBED_SERVER_URL_LIST,
-    MODALITY_INSTRUCTION,
 )
 from common import (
     get_embedding, get_llm_response, get_query_embedding,
@@ -38,37 +39,6 @@ class MMQAQueryEmbedding:
     qid: str
     embedding: np.ndarray
     subcomponent_embedding_list: tp.List[np.ndarray]
-
-
-def mmqa_query_eval(query_answer_list: tp.List[MMQAQueryAnswer]) -> float:
-    score = 0
-    total_query_len = len(query_answer_list)
-    
-    for query_answer in query_answer_list:
-        if not query_answer.llm_answer:
-            continue
-        
-        if "f_answer" in query_answer.llm_answer:
-            extracted_list = extract_answer_from_f_call(query_answer.llm_answer)
-        else:
-            extracted_list = [query_answer.llm_answer]
-        
-        normalized_predictions = [normalize_answer(str(ans)) for ans in extracted_list]
-        normalized_ground_truths = [normalize_answer(str(ans)) for ans in query_answer.answer]
-        
-        is_correct = False
-        for pred in normalized_predictions:
-            if pred in normalized_ground_truths:
-                is_correct = True
-                break
-        
-        if is_correct:
-            score += 1
-
-    em_score = score / total_query_len if total_query_len > 0 else 0
-    print(f"LLM Answer Exact Match {score} among {total_query_len} queries. EM Score: {em_score:.4f}")
-
-    return em_score
 
 def mmqa_load_query_answer(mmqa_folderpath: str) -> tp.List[MMQAQueryAnswer]:
     dev_path: str = os.path.join(mmqa_folderpath, "MMQA_dev.jsonl")
@@ -211,7 +181,7 @@ def get_mmqa_subquery_and_subembedding_list(embedding_server_url: str, llm_serve
     for cleaned_subquery in cleaned_subquery_list:
         raw_modality: str = get_llm_response(embedding_server_url, subquery_modality_query(cleaned_subquery))
         modality_key: str = raw_modality.strip().lower().replace(".", "")
-        modality_instruction: str = MODALITY_INSTRUCTION.get(modality_key, MODALITY_INSTRUCTION["text"])
+        modality_instruction: str = MODALITY_INSTRUCTION_QUERY.get(modality_key, MODALITY_INSTRUCTION_QUERY["text"])
         result_embedding: np.ndarray = get_query_embedding(llm_server_url, modality_instruction, cleaned_subquery, "")
         embedding_list.append(result_embedding)
         
@@ -258,3 +228,15 @@ def mmqa_load_cached_query_data(data_filepath: str) -> tp.List[MMQAQueryEmbeddin
                 except EOFError:
                     break
     return query_embedding_list
+
+def load_retrieval_result_map(component_doc_title_map: tp.List[str], retrieval_result_filepath: str) -> tp.Dict[str, tp.List[tp.Dict]]:
+    result_map: tp.Dict[str, tp.List[tp.Dict]] = dict()
+    with open(retrieval_result_filepath, "r", encoding="utf-8") as retrieval_result_file:
+        for retrieval_result_line in tqdm(retrieval_result_file, desc="Loading Retrieval Result..."):
+            retrieval_json_line = json.loads(retrieval_result_line)
+            doc_title_list = [component_doc_title_map[component_id] for component_id in retrieval_json_line["final_component_id_list"]]
+            temp_dict_list: tp.List[tp.Dict] = []
+            for doc_title, component_data in zip(doc_title_list, retrieval_json_line["final_component_list"]):
+                temp_dict_list.append({"doc_title": doc_title, **component_data})
+            result_map[retrieval_json_line["qid"]] = temp_dict_list
+    return result_map

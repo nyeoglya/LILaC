@@ -29,19 +29,13 @@ MMQA_REMAP_IMAGE_EMBEDDING_FAILED_FILE: str =           "/dataset/process/mmqa_r
 MMQA_QUERY_CACHE_FILE: str = "/dataset/process/mmqa_query_cache.pkl"
 
 MMQA_FINAL_GRAPH_FILENAME: str =            "/dataset/graph/mmqa.lgraph"
-MMQA_LLM_ANSWER_RESULT_FILE: str =          "/dataset/graph/llm_answer.jsonl"
-MMQA_FINAL_QUERY_ANSWER_FILENAME: str =     "/dataset/graph/lilac_query_answers.jsonl"
 MMQA_GRAPH_RETRIEVAL_RESULT_FILENAME: str = "/dataset/graph/retrieval_result.jsonl"
+MMQA_LLM_ANSWER_RESULT_FILE: str =          "/dataset/graph/llm_answer.jsonl"
+MMQA_LLM_ANSWER_FAILED_FILE: str =          "/dataset/graph/llm_answer_failed.txt"
 
 QWEN_SERVER_URL_LIST: tp.List[str] = ["http://lilac-qwen:8000", "http://lilac-qwen:8001", "http://lilac-qwen:8002", "http://lilac-qwen:8003"]
 MMEMBED_SERVER_URL_LIST: tp.List[str] = ["http://lilac-mmembed:8000", "http://lilac-mmembed:8001", "http://lilac-mmembed:8002", "http://lilac-mmembed:8003"]
 
-MODALITY_INSTRUCTION = {
-    "text": "Given a question, retrieve text passages that answer the question",
-    "table": "Given a question, retrieve table-format texts that answer the question. A table can include an image within a cell.",
-    "image": "Given a question, retrieve image-description (or OCR) pairs that answer the question"
-}
-
 BEAM_SIZE = 30
-TOP_K = 9
+TOP_K = 3
 MAX_HOP = 100

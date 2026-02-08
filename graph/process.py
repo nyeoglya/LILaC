@@ -3,27 +3,20 @@ import sys
 import time
 import json
 import typing as tp
+from itertools import cycle
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import numpy as np
 from tqdm import tqdm
 
 from graph import LILaCGraph, LILaCBeam
-from query import get_subembeddings, llm_question_query
-from utils.mmqa import (
-    MMQAQueryEmbedding,
-    mmqa_load_query_answer, mmqa_query_eval
-)
-from config import (
-    QWEN_SERVER_URL_LIST,
-    MMQA_PROCESS_IMAGE_FOLDER,
-    MAX_HOP
-)
+from query import get_subembeddings, LLMQueryGenerator
+from utils.mmqa import MMQAQueryEmbedding, MMQAQueryAnswer
 from common import (
     get_embedding, get_llm_response,
     EmbeddingRequestData
 )
 
-from dataclasses import asdict
 from contextlib import contextmanager
 
 class TimeTracker:
@@ -175,47 +168,76 @@ def process_query_list_retrieval(
     
     return result_comps_list
 
-# def main_process(query_list: list[str], graph_filepath: str, temp_graph_filepath: str, temp_llm_filepath: str, image_folderpath: str):
-#     query_list = sorted(query_list)
-#     result_comps_list, result_docs_list = process_query_list_retrieval(graph_filepath, query_list, temp_graph_filepath)
-
-#     llm_cache = {}
-#     if os.path.exists(temp_llm_filepath):
-#         with open(temp_llm_filepath, "r", encoding="utf-8") as f:
-#             for line in f:
-#                 try:
-#                     data = json.loads(line.strip())
-#                     llm_cache[data['query']] = data['answer']
-#                 except: continue
-#         print(f"이미 완료된 {len(llm_cache)}개의 LLM 응답을 로드했습니다.")
-
-#     llm_response_list = []
+def process_llm_answer(
+    query_retrieval_component_list: tp.List[tp.Tuple[MMQAQueryAnswer, tp.List[tp.Dict]]],
+    llm_server_url: str,
+    llm_answer_filepath: str,
+    failed_filepath: str,
+    image_folderpath: str
+) -> tp.List[str]:
+    assert not os.path.exists(llm_answer_filepath)
     
-#     # LLM 처리 루프
-#     with open(temp_llm_filepath, "a", encoding="utf-8") as f_out:
-#         for ind in range(len(query_list)):
-#             q = query_list[ind]
-            
-#             if q in llm_cache:
-#                 print(f"[{ind+1}/{len(query_list)}] Skipping (already answered): {q[:30]}...")
-#                 llm_response_list.append(llm_cache[q])
-#                 continue
+    llm_query_generator = LLMQueryGenerator(image_folderpath)
+    llm_response_list = []
+    with open(llm_answer_filepath, "w", encoding="utf-8") as llm_answer_file,\
+        open(failed_filepath, "w", encoding="utf-8") as failed_file:
+        for query_answer, retrieval_component in tqdm(query_retrieval_component_list, desc="Processing LLM query..."):
+            final_query, image_filepath_list = llm_query_generator.llm_question_query(query_answer.question, retrieval_component)
+            try:
+                llm_response = get_llm_response(llm_server_url, final_query, image_filepath_list)
+            except Exception as e:
+                tqdm.write(f"Error on query: {query_answer.qid}. Error: {e}")
+                failed_file.write(f"Error on query: {query_answer.qid}. Error: {e}")
+                llm_response = "[Generation Failed]"
 
-#             print(f"[{ind+1}/{len(query_list)}] Processing LLM query: {q[:50]}...")
-#             final_query, img_paths = llm_question_query(
-#                 q, image_folderpath, result_docs_list[ind], result_comps_list[ind]
-#             )
-            
-#             try:
-#                 llm_response = get_llm_response(QWEN_SERVER_URL_LIST[0], final_query, img_paths)
-#             except Exception as e:
-#                 print(f"!!! Error at query {ind}: {e}")
-#                 llm_response = "ERROR: Generation Failed"
+            llm_response_list.append(llm_response)
+            llm_answer_file.write(json.dumps({"qid": query_answer.qid, "answer": llm_response}, ensure_ascii=False) + "\n")
+            llm_answer_file.flush()
+    return llm_response_list
 
-#             llm_response_list.append(llm_response)
-#             print(f"=> LLM Augmented Answer: {llm_response[:100]}\n")
-            
-#             f_out.write(json.dumps({"query": q, "answer": llm_response}, ensure_ascii=False) + "\n")
-#             f_out.flush()
+def multiprocess_llm_answer(
+    query_retrieval_component_list: tp.List[tp.Tuple[MMQAQueryAnswer, tp.List[tp.Dict]]],
+    llm_server_url_list: tp.List[str],
+    llm_answer_filepath: str,
+    failed_filepath: str,
+    image_folderpath: str,
+) -> tp.List[str]:
+    assert not os.path.exists(llm_answer_filepath)
     
-#     return llm_response_list, result_comps_list
+    server_cycle = cycle(llm_server_url_list)
+    results_map: tp.Dict[str, str] = {}
+    
+    def fetch_answer(item):
+        query_answer, retrieval_component = item
+        local_generator = LLMQueryGenerator(image_folderpath)
+        server_url = next(server_cycle)
+        
+        final_query, image_filepath_list = local_generator.llm_question_query(
+            query_answer.question, retrieval_component
+        )
+        
+        try:
+            response = get_llm_response(server_url, final_query, image_filepath_list, max_tokens=4096)
+            return query_answer.qid, response, None
+        except Exception as e:
+            return query_answer.qid, "[Generation Failed]", f"Error on {query_answer.qid}: {str(e)}"
+
+    with open(llm_answer_filepath, "w", encoding="utf-8") as llm_answer_file, \
+         open(failed_filepath, "w", encoding="utf-8") as failed_file:
+        
+        with ThreadPoolExecutor(max_workers=len(llm_server_url_list)) as executor:
+            future_list = [executor.submit(fetch_answer, item) for item in query_retrieval_component_list]
+            
+            for future in tqdm(as_completed(future_list), total=len(future_list), desc="Parallel Query Processing..."):
+                qid, response, error_msg = future.result()
+                
+                results_map[qid] = response
+                
+                if error_msg:
+                    tqdm.write(error_msg)
+                    failed_file.write(error_msg + "\n")
+                
+                llm_answer_file.write(json.dumps({"qid": qid, "answer": response}, ensure_ascii=False) + "\n")
+                llm_answer_file.flush()
+
+    return [results_map[qa.qid] for qa, _ in query_retrieval_component_list]

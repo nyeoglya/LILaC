@@ -6,6 +6,7 @@ from tqdm import tqdm
 
 from graph import LILaCDocument, ProcessedComponent
 from utils.mmqa import MMQAQueryAnswer, MMQAQueryEmbedding
+from .base import normalize_answer
 
 def mmqa_graph_retrieval_test(query_answer_list: tp.List[MMQAQueryAnswer], retrieval_result_list: tp.List[tp.Dict]):
     query_answer_dict: tp.Dict[str, MMQAQueryAnswer] = {query_answer_data.qid: query_answer_data for query_answer_data in query_answer_list}
@@ -25,6 +26,7 @@ def mmqa_graph_retrieval_test(query_answer_list: tp.List[MMQAQueryAnswer], retri
         for ground_truth_uuid in ground_truth_uuid_set:
             if ground_truth_uuid in predicted_component_uuid_set:
                 score += 1
+                break
         max_count += 1
     
     print(f"Match Exist Count: {score} | Perfect Match Count: {perfect_score} | Total Count: {max_count}")
@@ -67,30 +69,42 @@ def mmqa_embed_knn_test(query_answer_list: tp.List[MMQAQueryAnswer], query_embed
         for ground_truth_uuid in ground_truth_uuid_set:
             if ground_truth_uuid in predicted_component_uuid_set:
                 score += 1
+                break
         max_count += 1
     
     print(f"Match Exist Count: {score} | Perfect Match Count: {perfect_score} | Total Count: {max_count}")
     print(f"Perfect Match Score: {perfect_score / max_count}")
     print(f"Match Exist Score: {score / max_count}")
-    
-def mmqa_verify_ldoc(ldoc_folderpath: str): # TODO: temp function
-    collision_samples = []
-    i = 0
-    for ldoc_filename in os.listdir(ldoc_folderpath):
-        ldoc_filepath = os.path.join(ldoc_folderpath, ldoc_filename)
-        ldoc = LILaCDocument.load_from_path(ldoc_filepath)
-        if not ldoc:
-            continue
-        for processed_component in ldoc.processed_components:
-            if processed_component.component_uuid:
-                i += len(processed_component.component_uuid)
-                if len(processed_component.component_uuid) > 1:
-                    collision_samples.append({
-                        'type': processed_component.original_component['type'],
-                        'uuids': processed_component.component_uuid,
-                        'content_preview': str(processed_component.original_component.get('paragraph', ''))[:30]
-                    })
-            # processed_component.component_embedding
 
-    for s in collision_samples:
-        print(f"[{s['type']}] 중복 ID: {s['uuids']} | 내용: {s['content_preview']}...")
+def mmqa_query_eval(llm_answer_list_map: tp.Dict[str, tp.List[str]], ground_truth_list_map: tp.Dict[str, tp.List[str]]):
+    total_em = 0
+    total_f1 = 0.0
+    max_count = 0
+    
+    f1_scores = []
+    for qid in tqdm(llm_answer_list_map, desc="Calculating EM & F1..."):
+        if qid not in ground_truth_list_map:
+            continue
+        
+        llm_prediction_set = {normalize_answer(str(ans)) for ans in llm_answer_list_map[qid] if normalize_answer(str(ans))}
+        ground_truth_set = {normalize_answer(str(gt)) for gt in ground_truth_list_map[qid] if normalize_answer(str(gt))}
+        if not ground_truth_set: continue
+
+        max_count += 1
+        if llm_prediction_set == ground_truth_set: total_em += 1
+        if not llm_prediction_set: current_f1 = 0.0
+        else:
+            common = llm_prediction_set.intersection(ground_truth_set)
+            precision = len(common) / len(llm_prediction_set)
+            recall = len(common) / len(ground_truth_set)
+            if (precision + recall) > 0: current_f1 = (2 * precision * recall) / (precision + recall)
+            else: current_f1 = 0.0
+        total_f1 += current_f1
+        f1_scores.append(current_f1)
+
+    final_em = (total_em / max_count) * 100 if max_count > 0 else 0
+    final_f1 = (total_f1 / max_count) * 100 if max_count > 0 else 0
+
+    print(f"Evaluation Results (N={max_count})")
+    print(f"Exact Match: {final_em:.2f}%")
+    print(f"F1 Score: {final_f1:.2f}%")

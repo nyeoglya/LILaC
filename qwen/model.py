@@ -2,6 +2,8 @@ from __future__ import annotations
 import typing as tp
 import threading
 
+from PIL import Image
+
 import torch
 from transformers import AutoModelForImageTextToText, AutoProcessor
 
@@ -45,7 +47,8 @@ class Qwen3_VL:
             # build messages
             batch_messages = []
             for inp in batch_inputs:
-                user_content = [{"type": "image", "image": img_path} for img_path in inp.img_paths]
+                image_list = [Image.open(img_path).convert("RGB") for img_path in inp.img_paths]
+                user_content = [{"type": "image", "image": image} for image in image_list]
                 user_content.append({"type": "text", "text": inp.text})
                 messages = [
                     {"role": "system", "content": ""},
