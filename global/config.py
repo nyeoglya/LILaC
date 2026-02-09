@@ -19,12 +19,12 @@ MMQA_OBJECT_DETECT_FAILED_FILE: str =     "/dataset/process/mmqa_image_object_de
 MMQA_IMAGE_DESCRIPTION_FAILED_FILE: str = "/dataset/process/mmqa_image_description_failed.txt"
 
 MMQA_LDOC_FOLDER: str = "/dataset/process/mmqa_ldoc/"
-MMQA_REMAPPED_LDOC_FOLDER: str = "/dataset/process/remapped_mmqa_ldoc/"
+MMQA_LABELED_LDOC_FOLDER: str = "/dataset/process/labeled_mmqa_ldoc/"
 
-MMQA_REMAP_IMAGE_REFERENCE_EMBEDDING_FILE: str =        "/dataset/process/mmqa_remap_reference_image_embedding.pkl"
-MMQA_REMAP_IMAGE_EMBEDDING_FILE: str =                  "/dataset/process/mmqa_remap_image_embedding.pkl"
-MMQA_REMAP_IMAGE_REFERENCE_EMBEDDING_FAILED_FILE: str = "/dataset/process/mmqa_remap_reference_image_embedding_failed.txt"
-MMQA_REMAP_IMAGE_EMBEDDING_FAILED_FILE: str =           "/dataset/process/mmqa_remap_image_embedding_failed.txt"
+MMQA_IMAGE_REFERENCE_EMBEDDING_FOR_LABELING_FILE: str =        "/dataset/process/mmqa_reference_image_embedding_for_labeling.pkl"
+MMQA_IMAGE_EMBEDDING_FOR_LABELING_FILE: str =                  "/dataset/process/mmqa_image_embedding_for_labeling.pkl"
+MMQA_IMAGE_REFERENCE_EMBEDDING_FOR_LABELING_FAILED_FILE: str = "/dataset/process/mmqa_reference_image_embedding_for_labeling_failed.txt"
+MMQA_IMAGE_EMBEDDING_FOR_LABELING_FAILED_FILE: str =           "/dataset/process/mmqa_image_embedding_for_labeling_failed.txt"
 
 MMQA_QUERY_CACHE_FILE: str = "/dataset/process/mmqa_query_cache.pkl"
 
@@ -37,5 +37,5 @@ QWEN_SERVER_URL_LIST: tp.List[str] = ["http://lilac-qwen:8000", "http://lilac-qw
 MMEMBED_SERVER_URL_LIST: tp.List[str] = ["http://lilac-mmembed:8000", "http://lilac-mmembed:8001", "http://lilac-mmembed:8002", "http://lilac-mmembed:8003"]
 
 BEAM_SIZE = 30
-TOP_K = 3
+TOP_K = 9
 MAX_HOP = 100

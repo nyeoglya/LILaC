@@ -15,7 +15,7 @@ from embed import LILaCDocument, ProcessedComponent
 
 SerializedList = tp.List[tp.Tuple[int, str]]
 
-class LILaCDocMMQAMapper:
+class LILaCDocMMQALabeler:
     def __init__(
         self,
         mmqa_folderpath: str,
@@ -43,15 +43,15 @@ class LILaCDocMMQAMapper:
         raw_id_map = mmqa_get_title_component_map_from_file(self.mmqa_folderpath)
         self.doc_title_id_map = {get_clean_filename(title): value for title, value in raw_id_map.items()}
         with (
-            open(self.mmqa_image_embedding_filepath, "rb") as mmqa_remap_image_embedding_file,
-            open(self.mmqa_reference_image_embedding_filepath, "rb") as mmqa_remap_reference_image_embedding_file
+            open(self.mmqa_image_embedding_filepath, "rb") as mmqa_image_embedding_for_labeling_file,
+            open(self.mmqa_reference_image_embedding_filepath, "rb") as mmqa_reference_image_embedding_for_labeling_file
         ):
-            self.image_embedding_map = pickle.load(mmqa_remap_image_embedding_file)
+            self.image_embedding_map = pickle.load(mmqa_image_embedding_for_labeling_file)
             self.image_embedding_map = {
                 os.path.splitext(os.path.basename(path))[0]: emb 
                 for path, emb in self.image_embedding_map.items()
             }
-            self.reference_image_embedding_map = pickle.load(mmqa_remap_reference_image_embedding_file)
+            self.reference_image_embedding_map = pickle.load(mmqa_reference_image_embedding_for_labeling_file)
             self.reference_image_embedding_map = {
                 os.path.splitext(os.path.basename(path))[0]: emb
                 for path, emb in self.reference_image_embedding_map.items()
@@ -101,10 +101,10 @@ class LILaCDocMMQAMapper:
             self.doc_title_lilac_doc_map[lilac_doc.doc_title] = lilac_doc
             self.doc_title_lilac_doc_serialized_info_map[lilac_doc.doc_title] = (serialized_text_info_list, image_info_list, serialized_table_info_list)
     
-    def run_remapping(self, remapped_doc_save_folder: str): # save uuid to ldoc if possible
-        assert os.path.exists(remapped_doc_save_folder)
+    def run_labeling(self, labeled_doc_save_folder: str): # save uuid to ldoc if possible
+        assert os.path.exists(labeled_doc_save_folder)
         
-        for doc_title in tqdm(self.doc_title_id_map, desc="Remapping..."):
+        for doc_title in tqdm(self.doc_title_id_map, desc="Labeling Component..."):
             if doc_title not in self.doc_title_lilac_doc_serialized_info_map:
                 continue
             serialized_text_info_list, image_info_list, serialized_table_info_list = self.doc_title_lilac_doc_serialized_info_map[doc_title]
@@ -122,11 +122,11 @@ class LILaCDocMMQAMapper:
             
             lilac_doc = self.doc_title_lilac_doc_map[doc_title]
             for index, uuid in remapping_data_info_list:
-                if lilac_doc.processed_components[index].component_uuid == "": # TODO: 나중에 지우기
-                    lilac_doc.processed_components[index].component_uuid = [] # TODO: 나중에 지우기
+                if lilac_doc.processed_components[index].component_uuid == "":
+                    lilac_doc.processed_components[index].component_uuid = []
                 lilac_doc.processed_components[index].component_uuid.append(uuid)
             
-            lilac_doc.save_to_path(os.path.join(remapped_doc_save_folder, doc_title))
+            lilac_doc.save_to_path(os.path.join(labeled_doc_save_folder, doc_title + ".ldoc.labeled"))
     
     def _remap_text_component(self, serialized_text_info_list: SerializedList, text_component_id: str) -> tp.Optional[tp.Tuple[int, str]]:
         if not serialized_text_info_list:

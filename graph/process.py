@@ -45,9 +45,7 @@ def process_query_list_with_cached_data(
     output_filepath: tp.Optional[str] = None
 ) -> tp.List[tp.Dict]:
     if output_filepath:
-        os.makedirs(os.path.dirname(os.path.abspath(output_filepath)), exist_ok=True)
-        with open(output_filepath, 'w', encoding='utf-8') as f:
-            pass
+        assert not os.path.exists(output_filepath)
     
     with code_timer(None, "+ Start loading LILaCGraph... ", "Complete"):
         lilac_graph: LILaCGraph = LILaCGraph.load_graph(graph_filepath)

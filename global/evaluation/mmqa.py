@@ -8,6 +8,33 @@ from graph import LILaCDocument, ProcessedComponent
 from utils.mmqa import MMQAQueryAnswer, MMQAQueryEmbedding
 from .base import normalize_answer
 
+def mmqa_graph_retrieval_mrr_test(query_answer_list: tp.List[MMQAQueryAnswer], retrieval_result_list: tp.List[tp.Dict]):
+    query_answer_dict: tp.Dict[str, MMQAQueryAnswer] = {query_answer_data.qid: query_answer_data for query_answer_data in query_answer_list}
+    
+    score = 0
+    total_mrr = 0.0
+    max_count = 0
+    for retrieval_result in tqdm(retrieval_result_list, desc="Evaluating Retrieval MRR Score..."):
+        query_id = retrieval_result["qid"]
+        final_component_uuid_list = retrieval_result["final_component_uuid_list"]
+        query_answer_data = query_answer_dict[query_id]
+        ground_truth_uuid_set = set(query_answer_data.supporting_context_id_list)
+
+        found_rank = 0
+        for i, pred_uuid in enumerate(final_component_uuid_list):
+            if pred_uuid in ground_truth_uuid_set:
+                found_rank = i + 1
+                break
+        if found_rank > 0:
+            score += 1
+            total_mrr += (1.0 / found_rank)
+        
+        max_count += 1
+    
+    mrr_score = total_mrr / max_count if max_count > 0 else 0
+    
+    print(f"MRR: {mrr_score:.4f}")
+
 def mmqa_graph_retrieval_test(query_answer_list: tp.List[MMQAQueryAnswer], retrieval_result_list: tp.List[tp.Dict]):
     query_answer_dict: tp.Dict[str, MMQAQueryAnswer] = {query_answer_data.qid: query_answer_data for query_answer_data in query_answer_list}
     score = 0

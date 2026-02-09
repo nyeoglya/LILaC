@@ -9,14 +9,14 @@ from utils.mmqa import (
     mmqa_load_query_answer, mmqa_cache_query_process, mmqa_load_cached_query_data, load_retrieval_result_map
 )
 from evaluation.base import extract_answer_list_from_f_call
-from evaluation.mmqa import mmqa_embed_knn_test, mmqa_graph_retrieval_test, mmqa_query_eval
-from remap import LILaCDocMMQAMapper
+from evaluation.mmqa import mmqa_embed_knn_test, mmqa_graph_retrieval_test, mmqa_query_eval, mmqa_graph_retrieval_mrr_test
+from remap import LILaCDocMMQALabeler
 from process import process_query_list_with_cached_data, multiprocess_llm_answer
 from config import (
     MMQA_PATH, MMQA_LDOC_FOLDER, MMQA_PROCESS_IMAGE_FOLDER,
     MMQA_PARSE_JSON_FOLDER,
     MMQA_IMAGE_DESCRIPTION_INFO_FILE, MMQA_OBJECT_DETECT_INFO_FILE,
-    MMQA_REMAP_IMAGE_EMBEDDING_FILE, MMQA_REMAP_IMAGE_REFERENCE_EMBEDDING_FILE, MMQA_REMAPPED_LDOC_FOLDER,
+    MMQA_IMAGE_EMBEDDING_FOR_LABELING_FILE, MMQA_IMAGE_REFERENCE_EMBEDDING_FOR_LABELING_FILE, MMQA_LABELED_LDOC_FOLDER,
     QWEN_SERVER_URL_LIST, MMEMBED_SERVER_URL_LIST, MMQA_LLM_ANSWER_RESULT_FILE, MMQA_LLM_ANSWER_FAILED_FILE,
     MMQA_QUERY_CACHE_FILE,
     MMQA_FINAL_GRAPH_FILENAME, MMQA_GRAPH_RETRIEVAL_RESULT_FILENAME,
@@ -35,16 +35,16 @@ def main():
     # sequential_component_embedder.load_json_filelist()
     # sequential_component_embedder.run_embedding()
     
-    '''Component MMQA Mapper'''
-    # lilac_data_mmqa_mapper = LILaCDocMMQAMapper(
+    '''Component MMQA Labeling'''
+    # lilac_data_mmqa_mapper = LILaCDocMMQALabeler(
     #     MMQA_PATH,
     #     MMQA_LDOC_FOLDER,
-    #     MMQA_REMAP_IMAGE_REFERENCE_EMBEDDING_FILE,
-    #     MMQA_REMAP_IMAGE_EMBEDDING_FILE
+    #     MMQA_IMAGE_REFERENCE_EMBEDDING_FOR_LABELING_FILE,
+    #     MMQA_IMAGE_EMBEDDING_FOR_LABELING_FILE
     # )
     # lilac_data_mmqa_mapper.load_mmqa_reference()
     # lilac_data_mmqa_mapper.load_ldoc_from_folder()
-    # lilac_data_mmqa_mapper.run_remapping(MMQA_REMAPPED_LDOC_FOLDER)
+    # lilac_data_mmqa_mapper.run_labeling(MMQA_LABELED_LDOC_FOLDER)
     # print(sum([len(idmap["txtid"]) + len(idmap["tabid"]) + len(idmap["imgid"]) for idmap in lilac_data_mmqa_mapper.doc_title_id_map.values()]))
     
     '''Query Caching'''
@@ -61,10 +61,10 @@ def main():
     query_answer_list: tp.List[MMQAQueryAnswer] = mmqa_load_query_answer(MMQA_PATH)
     
     '''Verify MM-Embed Embedding'''
-    # mmqa_embed_knn_test(query_answer_list, mmqa_cached_query_embedding_list, MMQA_REMAPPED_LDOC_FOLDER, TOP_K)
+    # mmqa_embed_knn_test(query_answer_list, mmqa_cached_query_embedding_list, MMQA_LABELED_LDOC_FOLDER, TOP_K)
     
     '''Graph Construction'''
-    # LILaCGraph.make_graph(MMQA_REMAPPED_LDOC_FOLDER, MMQA_FINAL_GRAPH_FILENAME)
+    # LILaCGraph.make_graph(MMQA_LABELED_LDOC_FOLDER, MMQA_FINAL_GRAPH_FILENAME)
     # lilac_graph: LILaCGraph = LILaCGraph.load_graph(MMQA_FINAL_GRAPH_FILENAME)
     
     '''LILaC Graph Retrieval'''
@@ -76,7 +76,10 @@ def main():
     #     MAX_HOP,
     #     MMQA_GRAPH_RETRIEVAL_RESULT_FILENAME
     # )
+    # with open(MMQA_GRAPH_RETRIEVAL_RESULT_FILENAME, 'r', encoding='utf-8') as retrieval_result_file:
+    #     retrieval_result_list: tp.List[tp.Dict] = [json.loads(result_file_line) for result_file_line in retrieval_result_file.readlines()]
     # mmqa_graph_retrieval_test(query_answer_list, retrieval_result_list)
+    # mmqa_graph_retrieval_mrr_test(query_answer_list, retrieval_result_list)
     
     '''LLM Query'''
     # retrieval_result_map: tp.Dict[str, tp.List[tp.Dict]] = load_retrieval_result_map(lilac_graph.component_doc_title_map, MMQA_GRAPH_RETRIEVAL_RESULT_FILENAME)

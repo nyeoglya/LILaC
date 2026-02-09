@@ -16,7 +16,7 @@ from config import (
     MMQA_IMAGE_DESCRIPTION_FAILED_FILE, MMQA_IMAGE_DESCRIPTION_INFO_FILE,
     QWEN_SERVER_URL_LIST
 )
-from remap.mmqa import mmqa_remapping
+from remap.mmqa import mmqa_embedding_for_labeling
 
 def main() -> None:
     mmqa_wiki_doc_title_list: tp.List[str] = mmqa_get_clean_wikidocs_titles(MMQA_PATH)
@@ -49,8 +49,8 @@ def main() -> None:
     batch_object_detector = BatchObjectDetector(MMQA_CRAWL_IMAGE_FOLDER)
     batch_object_detector.run_detection(MMQA_OBJECT_DETECT_FAILED_FILE, MMQA_OBJECT_DETECT_INFO_FILE)
     
-    '''MMQA Remap Embedding'''
-    mmqa_remapping()
+    '''MMQA Embedding for Labeling'''
+    mmqa_embedding_for_labeling()
 
 
 if __name__ == "__main__":
